@@ -43,13 +43,19 @@ def section_title(title: str) -> None:
 
 
 def metric_card(label: str, value: str, subtitle: str, icon: str, icon_cls: str = "icon-blue") -> None:
+    value_text = str(value)
+    longest_word = max((len(word) for word in value_text.split()), default=0)
+    value_size_cls = " metric-value-long" if longest_word >= 9 else ""
+    card_size_cls = " metric-card-long" if longest_word >= 9 else ""
     st.markdown(
         f"""
-        <div class="metric-card"><div class="metric-wrap">
-            <div class="metric-icon {escape(str(icon_cls), quote=True)}">{escape(str(icon))}</div>
-            <div><div class="metric-label">{escape(str(label))}</div>
-            <div class="metric-value">{escape(str(value))}</div>
-            <div class="metric-sub">{escape(str(subtitle))}</div></div>
+        <div class="metric-card{card_size_cls}"><div class="metric-wrap">
+            <div class="metric-head">
+                <div class="metric-icon {escape(str(icon_cls), quote=True)}">{escape(str(icon))}</div>
+                <div class="metric-label">{escape(str(label))}</div>
+            </div>
+            <div class="metric-value{value_size_cls}">{escape(value_text)}</div>
+            <div class="metric-sub">{escape(str(subtitle))}</div>
         </div></div>
         """,
         unsafe_allow_html=True,

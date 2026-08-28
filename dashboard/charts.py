@@ -7,7 +7,8 @@ from .ui import br_int, br_money
 def chart_layout(height: int = 310, showlegend: bool = False, legend: dict | None = None) -> dict:
     return dict(
         height=height,
-        margin=dict(l=10, r=10, t=10, b=10),
+        autosize=True,
+        margin=dict(l=10, r=20, t=10, b=10),
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(color="#0B2459", family="Inter"),
@@ -30,8 +31,9 @@ def barh(df: pd.DataFrame, label_col: str, value_col: str, text_col: str | None 
     data = df.sort_values(value_col, ascending=True).copy()
     fig = go.Figure(go.Bar(x=data[value_col], y=data[label_col], orientation="h", marker_color=color, text=data[text_col] if text_col else data[value_col], textposition="outside", cliponaxis=False))
     fig.update_layout(**chart_layout(height=height))
-    fig.update_xaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-    fig.update_yaxes(showgrid=False)
+    fig.update_xaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False, automargin=True)
+    fig.update_yaxes(showgrid=False, automargin=True)
+    fig.update_traces(textfont=dict(size=11), insidetextanchor="middle")
     return fig
 
 
@@ -39,7 +41,15 @@ def donut(df: pd.DataFrame, label_col: str, value_col: str, center: str, height:
     if df.empty or df[value_col].sum() == 0:
         return empty_fig(height=height)
     fig = go.Figure(go.Pie(labels=df[label_col], values=df[value_col], hole=.60, textinfo="percent", sort=False, marker_colors=["#125CC9", "#39A74A", "#2EA8C5", "#EAB308", "#8C67BE", "#94A3B8", "#F97316"]))
-    fig.update_layout(**chart_layout(height=height, showlegend=True, legend=dict(x=1.02, y=.5)), annotations=[dict(text=center, x=.5, y=.5, showarrow=False, font=dict(size=18, color="#0B2459"))])
+    # A legenda abaixo do gráfico não disputa largura com a rosca quando a
+    # sidebar reduz o contêiner do dashboard.
+    layout = chart_layout(
+        height=height,
+        showlegend=True,
+        legend=dict(orientation="h", x=.5, xanchor="center", y=-.08, yanchor="top"),
+    )
+    layout["margin"]["b"] = 58
+    fig.update_layout(**layout, annotations=[dict(text=center, x=.5, y=.5, showarrow=False, font=dict(size=18, color="#0B2459"))])
     return fig
 
 

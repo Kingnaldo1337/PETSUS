@@ -18,14 +18,18 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
     # Páginas
     # -----------------------------------------------------------------------------
     if pagina == "Visão Geral":
-        cols = st.columns(5)
         cards = [
             ("Total de Processos", br_int(k["total"]), f"{br_float(participacao)}% da base total", "📄", "icon-blue"),
-            ("Pacientes Ativos", br_int(k["pacientes"]), f"{br_float(pct(k['pacientes'], base['paciente_id'].nunique()))}% dos pacientes", "👥", "icon-green"),
             ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo total", "$", "icon-green"),
             ("Tempo Médio", f"{br_int(k['tempo'])} dias", "tempo médio de tramitação", "⏱", "icon-orange"),
             ("Taxa de Procedência", f"{br_float(k['procedencia'])}%", "procedente + parcialmente", "🛡", "icon-purple"),
         ]
+        if user_role != "usuario":
+            cards.insert(
+                1,
+                ("Pacientes Ativos", br_int(k["pacientes"]), f"{br_float(pct(k['pacientes'], base['paciente_id'].nunique()))}% dos pacientes", "👥", "icon-green"),
+            )
+        cols = st.columns(len(cards))
         for col, card in zip(cols, cards):
             with col:
                 metric_card(*card)
@@ -68,18 +72,21 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 section_title("Alertas executivos")
                 p_lim = br_float(k["liminar"])
                 item_maior = top_group(dff, "item_demandado", "custo_estimado", 1, "sum")
-                cidade_maior = top_group(dff, "municipio", "processo_id", 1, "count")
                 ticket_top = dff.groupby("paciente", as_index=False)["custo_estimado"].sum().sort_values("custo_estimado", ascending=False).head(1)
                 i1, i2 = st.columns(2)
                 with i1:
                     insight_card("Liminares", f"{p_lim}%", "Percentual de processos com decisão liminar no recorte filtrado.")
                 with i2:
                     insight_card("Urgentes", br_int(k["urgentes"]), "Total de processos classificados como urgentes.")
-                i3, i4 = st.columns(2)
-                with i3:
+                if user_role == "usuario":
                     insight_card("Maior item por custo", item_maior["item_demandado"].iloc[0] if not item_maior.empty else "-", br_money(item_maior["valor"].iloc[0]) if not item_maior.empty else "Sem custo")
-                with i4:
-                    insight_card("Município destaque", cidade_maior["municipio"].iloc[0] if not cidade_maior.empty else "-", f"{br_int(cidade_maior['valor'].iloc[0])} processos" if not cidade_maior.empty else "Sem registros")
+                else:
+                    cidade_maior = top_group(dff, "municipio", "processo_id", 1, "count")
+                    i3, i4 = st.columns(2)
+                    with i3:
+                        insight_card("Maior item por custo", item_maior["item_demandado"].iloc[0] if not item_maior.empty else "-", br_money(item_maior["valor"].iloc[0]) if not item_maior.empty else "Sem custo")
+                    with i4:
+                        insight_card("Município destaque", cidade_maior["municipio"].iloc[0] if not cidade_maior.empty else "-", f"{br_int(cidade_maior['valor'].iloc[0])} processos" if not cidade_maior.empty else "Sem registros")
     
     elif pagina == "Demandas":
         cols = st.columns(5)
@@ -571,14 +578,21 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 st.dataframe(tab.rename(columns={"paciente_id": "ID", "paciente": "Paciente", "cpf": "CPF", "processos": "Processos", "custo_total": "Custo Total", "ultimo_processo": "Último Processo"}), hide_index=True, use_container_width=True, height=310)
     
     else:  # Base de Dados
-        cols = st.columns(5)
-        cards = [
-            ("Registros filtrados", br_int(k["total"]), f"{br_float(participacao)}% da base", "🔎", "icon-blue"),
-            ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
-            ("Custo total", br_money(k["custo"]), "soma filtrada", "$", "icon-green"),
-            ("Municípios", br_int(k["municipios"]), "municípios únicos", "📍", "icon-purple"),
-            ("Itens", br_int(dff["item_demandado"].nunique()), "itens distintos", "💊", "icon-orange"),
-        ]
+        if user_role == "usuario":
+            cards = [
+                ("Meus processos", br_int(k["total"]), "processos vinculados", "🔎", "icon-blue"),
+                ("Custo total", br_money(k["custo"]), "soma dos processos", "$", "icon-green"),
+                ("Itens", br_int(dff["item_demandado"].nunique()), "itens distintos", "💊", "icon-orange"),
+            ]
+        else:
+            cards = [
+                ("Registros filtrados", br_int(k["total"]), f"{br_float(participacao)}% da base", "🔎", "icon-blue"),
+                ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
+                ("Custo total", br_money(k["custo"]), "soma filtrada", "$", "icon-green"),
+                ("Municípios", br_int(k["municipios"]), "municípios únicos", "📍", "icon-purple"),
+                ("Itens", br_int(dff["item_demandado"].nunique()), "itens distintos", "💊", "icon-orange"),
+            ]
+        cols = st.columns(len(cards))
         for col, card in zip(cols, cards):
             with col:
                 metric_card(*card)

@@ -262,10 +262,31 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
     st.markdown(
         """
         <style>
-        .auth-wrap { max-width: 560px; margin: 2.5rem auto .5rem; text-align: center; }
+        .auth-wrap { width: min(100%, 560px); max-width: 560px; min-width: 0; margin: 2.5rem auto .5rem; padding-inline: .5rem; box-sizing: border-box; text-align: center; }
         .auth-icon { font-size: 3.2rem; }
         .auth-title { font-size: 2rem; font-weight: 900; color: #0B2459; margin-top: .35rem; }
         .auth-sub { color: #667085; margin: .35rem 0 1.1rem; }
+        .st-key-auth_panel {
+            width: min(100%, 560px);
+            max-width: 560px;
+            min-width: 0;
+            margin-inline: auto;
+        }
+        .st-key-auth_panel, .st-key-auth_panel * {
+            box-sizing: border-box;
+        }
+        .st-key-auth_panel p, .st-key-auth_panel label,
+        .st-key-auth_panel [data-testid="stMarkdownContainer"] {
+            min-width: 0;
+            word-break: normal;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+        @media (max-width: 640px) {
+            .auth-wrap { margin-top: 1rem; padding-inline: .25rem; }
+            .auth-title { font-size: 1.65rem; line-height: 1.15; }
+            .st-key-auth_panel { width: 100%; }
+        }
         </style>
         <div class="auth-wrap">
             <div class="auth-icon">⚖️➕</div>
@@ -276,8 +297,7 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         unsafe_allow_html=True,
     )
 
-    left, center, right = st.columns([1, 1.35, 1])
-    with center:
+    with st.container(key="auth_panel"):
         login_tab, register_tab = st.tabs(["Entrar", "Criar conta"])
         with login_tab:
             with st.form("login_form", clear_on_submit=False):
