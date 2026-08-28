@@ -68,6 +68,19 @@ st.markdown(
         div[data-testid="stVerticalBlockBorderWrapper"] { background: #FFFFFF; border: 1px solid #E1E9F3; border-radius: 18px; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045); padding: .45rem .6rem; }
         div[data-testid="stDataFrame"] { border: none; }
         .footer-note { font-size: .88rem; color: #667085; margin-top: .4rem; padding-bottom: .5rem; }
+        @media (max-width: 768px) {
+            .block-container { padding: .7rem .65rem 1rem; }
+            [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: .65rem; }
+            [data-testid="column"] { flex: 1 1 100% !important; min-width: 100% !important; width: 100% !important; }
+            .title-main { font-size: 1.75rem; line-height: 1.08; }
+            .title-sub { font-size: .95rem; line-height: 1.3; }
+            .filter-pill { white-space: normal; padding: .6rem .7rem; border-radius: 12px; }
+            .metric-card { min-height: 0; padding: .8rem; border-radius: 14px; }
+            .metric-icon { width: 48px; height: 48px; min-width: 48px; border-radius: 14px; font-size: 1.25rem; }
+            .metric-value { font-size: 1.5rem; overflow-wrap: anywhere; }
+            .insight-card, .patient-box { border-radius: 14px; }
+            [data-testid="stDataFrame"] { max-width: 100%; overflow-x: auto; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -399,7 +412,9 @@ def monthly_line(df: pd.DataFrame, value_col: str, title_name: str, money: bool 
     d = df.groupby("ano_mes", as_index=False).agg(valor=(value_col, "sum"))
     d = d.sort_values("ano_mes")
     d["label"] = pd.to_datetime(d["ano_mes"] + "-01").dt.strftime("%m/%Y")
-    d["texto"] = d["valor"].map(lambda v: br_money(v) if money else br_int(v))
+    d["texto"] = d["valor"].map(lambda value: br_money(value) if money else br_int(value))
+    hover_format = ",.2f" if money else ",.0f"
+    hover_prefix = "R$ " if money else ""
     fig = go.Figure(go.Scatter(
         x=d["label"],
         y=d["valor"],
@@ -407,12 +422,19 @@ def monthly_line(df: pd.DataFrame, value_col: str, title_name: str, money: bool 
         text=d["texto"],
         textposition="top center",
         name=title_name,
+        fill="tozeroy",
+        fillcolor="rgba(18, 92, 201, 0.10)",
+        hovertemplate=f"<b>%{{x}}</b><br>{title_name}: {hover_prefix}%{{y:{hover_format}}}<extra></extra>",
         line=dict(color="#125CC9", width=3),
         marker=dict(size=8, color="#125CC9"),
     ))
-    fig.update_layout(**chart_layout(height=height, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)))
+    fig.update_layout(**chart_layout(height=height, showlegend=False), hovermode="x unified")
     fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-    fig.update_xaxes(showgrid=False)
+    fig.update_xaxes(showgrid=False, type="category", tickmode="auto", nticks=6, tickangle=-35, automargin=True)
+    if money:
+        fig.update_yaxes(tickprefix="R$ ", tickformat=",.0f")
+    else:
+        fig.update_yaxes(tickformat=",.0f")
     return fig
 
 
@@ -655,7 +677,11 @@ if pagina == "Visão Geral":
     with a:
         with st.container(border=True):
             section_title("Evolução mensal dos processos")
-            st.plotly_chart(monthly_line(dff.assign(qtd=1), "qtd", "Processos", height=340), use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(
+                monthly_line(dff.assign(qtd=1), "qtd", "Processos", height=340),
+                use_container_width=True,
+                config={"displayModeBar": True, "scrollZoom": True, "responsive": True, "displaylogo": False},
+            )
     with b:
         with st.container(border=True):
             section_title("Natureza da ação")
