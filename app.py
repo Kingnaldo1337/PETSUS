@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from html import escape
 import re
 import zlib
 import unicodedata
@@ -10,6 +11,7 @@ import streamlit as st
 
 from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
 from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes
+from auth import AuthStore, logout, render_auth_gate
 
 st.set_page_config(
     page_title="Dashboard de Judicialização na Saúde",
@@ -20,7 +22,7 @@ st.set_page_config(
 
 DATA_FILE = Path(__file__).with_name("dados_dashboard_saude.xlsx")
 REQUIRED_COLUMNS = {
-    "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf_mascarado",
+    "processo_id", "data_ajuizamento", "paciente_id", "paciente",
     "sexo", "idade", "faixa_etaria", "municipio", "uf", "regiao", "latitude",
     "longitude", "condicao_clinica", "sus_exclusivo", "renda_familiar", "pcd",
     "doenca_rara", "natureza", "tipo_demanda", "item_demandado", "especialidade",
@@ -104,6 +106,94 @@ st.markdown(
 # -----------------------------------------------------------------------------
 # Leitura e utilitários
 # -----------------------------------------------------------------------------
+def _cpf_digits(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    if isinstance(value, int):
+        return str(value).zfill(11)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value)).zfill(11)
+    return re.sub(r"\D", "", str(value))
+
+
+def _format_cpf(value: object) -> str:
+    digits = _cpf_digits(value)
+    if len(digits) != 11:
+        return str(value)
+    return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
+
+
+def _cpf_checksum_valid(digits: str) -> bool:
+    """Usado só para evitar que um CPF fictício gerado coincida com um CPF real válido."""
+    if len(digits) != 11 or len(set(digits)) == 1:
+        return False
+    nums = [int(x) for x in digits]
+    total = sum(nums[i] * (10 - i) for i in range(9))
+    d1 = (total * 10 % 11) % 10
+    total = sum(nums[i] * (11 - i) for i in range(10))
+    d2 = (total * 10 % 11) % 10
+    return nums[9] == d1 and nums[10] == d2
+
+
+def _attach_full_cpf(base: pd.DataFrame) -> pd.DataFrame:
+    """Garante uma coluna `cpf` completa.
+
+    Em produção, se a planilha já trouxer `cpf`, `cpf_completo` ou `cpf_paciente`,
+    o valor real da fonte é usado. Na base fictícia atual, os dígitos ocultos não
+    existem; por isso é criado um CPF de demonstração estável por paciente,
+    preservando o prefixo e o sufixo visíveis e evitando CPFs válidos reais.
+    """
+    d = base.copy()
+    for source in ("cpf", "cpf_completo", "cpf_paciente"):
+        if source in d.columns:
+            values = d[source].map(_cpf_digits)
+            invalid = values.str.len().ne(11)
+            if invalid.any():
+                st.error(f"A coluna '{source}' possui CPF(s) incompleto(s). Corrija a fonte de dados antes de continuar.")
+                st.stop()
+            d["cpf"] = values.map(_format_cpf)
+            d["cpf_origem"] = "Fonte de dados"
+            return d
+
+    if "cpf_mascarado" not in d.columns:
+        st.error("A base precisa conter uma coluna de CPF completo (`cpf`) ou, para demonstração, `cpf_mascarado`.")
+        st.stop()
+
+    patient_rows = (
+        d[["paciente_id", "cpf_mascarado"]]
+        .drop_duplicates("paciente_id")
+        .sort_values("paciente_id")
+    )
+    mapping: dict[str, str] = {}
+    used: set[str] = set()
+    for row in patient_rows.itertuples(index=False):
+        patient_id = str(row.paciente_id)
+        masked_digits = re.sub(r"\D", "", str(row.cpf_mascarado))
+        if len(masked_digits) < 5:
+            st.error(f"CPF mascarado inválido para o paciente {patient_id}.")
+            st.stop()
+        prefix, suffix = masked_digits[:3], masked_digits[-2:]
+        pid_digits = re.sub(r"\D", "", patient_id)
+        base_middle = int(pid_digits or "0") % 1_000_000
+
+        # Usa o ID do paciente como semente. Se, por coincidência, resultar em um
+        # CPF matematicamente válido, desloca a parte central para mantê-lo fictício.
+        for offset in (0, 500_000, 600_000, 700_000, 800_000, 900_000, 400_000, 300_000, 200_000, 100_000):
+            middle = (base_middle + offset) % 1_000_000
+            candidate = f"{prefix}{middle:06d}{suffix}"
+            if candidate not in used and not _cpf_checksum_valid(candidate):
+                used.add(candidate)
+                mapping[patient_id] = _format_cpf(candidate)
+                break
+        else:
+            st.error(f"Não foi possível gerar um CPF de demonstração para {patient_id}.")
+            st.stop()
+
+    d["cpf"] = d["paciente_id"].astype(str).map(mapping)
+    d["cpf_origem"] = "Demonstração"
+    return d
+
+
 @st.cache_data(show_spinner=False)
 def load_data(path: Path, modified_at: int) -> pd.DataFrame:
     if not path.exists():
@@ -122,7 +212,7 @@ def load_data(path: Path, modified_at: int) -> pd.DataFrame:
         st.code(", ".join(missing))
         st.stop()
 
-    base = base.copy()
+    base = _attach_full_cpf(base)
     base["data_ajuizamento"] = pd.to_datetime(base["data_ajuizamento"], errors="coerce")
     invalid_dates = int(base["data_ajuizamento"].isna().sum())
     if invalid_dates == len(base):
@@ -138,7 +228,7 @@ def load_data(path: Path, modified_at: int) -> pd.DataFrame:
     base["ano_mes"] = base["data_ajuizamento"].dt.to_period("M").astype(str)
     base = enrich_judsaude_fields(base)
     base["_search"] = (
-        base[["paciente", "paciente_id", "cpf_mascarado", "processo_id", "medicamento_dcb", "cid"]]
+        base[["paciente", "paciente_id", "cpf", "processo_id", "medicamento_dcb", "cid"]]
         .fillna("")
         .astype(str)
         .agg(" ".join, axis=1)
@@ -310,7 +400,23 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-base = load_data(DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0)
+base_all = load_data(DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0)
+auth_store = AuthStore(Path(__file__).with_name("usuarios.db"))
+auth_user = render_auth_gate(auth_store, base_all)
+
+# O escopo de acesso é aplicado antes de filtros, KPIs, tabelas ou exportações.
+# Assim, um usuário comum nunca recebe registros de outros pacientes no restante do app.
+if auth_user.is_manager:
+    base = base_all.copy()
+else:
+    if not auth_user.patient_id:
+        st.error("Sua conta não está vinculada a um paciente. Procure a administração do sistema.")
+        st.stop()
+    base = base_all[base_all["paciente_id"].astype(str) == str(auth_user.patient_id)].copy()
+    if base.empty:
+        st.error("Não foram encontrados dados para o paciente vinculado à sua conta.")
+        st.stop()
+
 base_total = len(base)
 base_cost_total = float(base["custo_estimado"].sum())
 
@@ -322,11 +428,30 @@ with st.sidebar:
         '<div class="sidebar-logo"><div class="icon">⚖️➕</div><div class="title">SAÚDE PÚBLICA</div><div class="subtitle">Judicialização na Saúde</div></div>',
         unsafe_allow_html=True,
     )
-    pagina = st.radio(
-        "Navegação",
-        ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Pacientes", "Base de Dados"],
-        label_visibility="collapsed",
+    st.markdown(
+        f"<div style='padding:.15rem 0 .55rem'><b>{escape(auth_user.name)}</b><br>"
+        f"<span style='opacity:.82;font-size:.86rem'>{'Gestor' if auth_user.is_manager else 'Usuário'} · {escape(auth_user.cpf_display)}</span></div>",
+        unsafe_allow_html=True,
     )
+    if st.button("Sair", use_container_width=True):
+        logout()
+
+    if auth_user.is_manager:
+        page_labels = ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Pacientes", "Base de Dados"]
+        page_map = {label: label for label in page_labels}
+    else:
+        page_labels = ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Meu Perfil", "Meus Processos"]
+        page_map = {
+            "Visão Geral": "Visão Geral",
+            "Demandas": "Demandas",
+            "Medicamentos": "Medicamentos",
+            "Competência": "Competência",
+            "Custos": "Custos",
+            "Meu Perfil": "Pacientes",
+            "Meus Processos": "Base de Dados",
+        }
+    page_label = st.radio("Navegação", page_labels, label_visibility="collapsed")
+    pagina = page_map[page_label]
 
     st.markdown("---")
     st.subheader("Filtros")
@@ -336,29 +461,33 @@ with st.sidebar:
     max_date = base["data_ajuizamento"].max().date()
     periodo_sel = st.date_input("Período", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
 
-    busca_paciente = st.text_input(
-        "Buscar paciente / CPF / processo",
-        placeholder="Ex.: Maria, PAC00042 ou PROC-2025",
-        help="Esse campo procura em nome, código do paciente, CPF mascarado e número do processo.",
-    )
-
+    busca_paciente = ""
     paciente_ids_sel: list[str] = []
-    if len(normalize_text(busca_paciente)) >= 2:
-        matches = base[base["_search"].str.contains(normalize_text(busca_paciente), regex=False, na=False)].copy()
-        pessoas = (
-            matches[["paciente_id", "paciente", "cpf_mascarado"]]
-            .drop_duplicates("paciente_id")
-            .sort_values("paciente")
-            .head(150)
+    if auth_user.is_manager:
+        busca_paciente = st.text_input(
+            "Buscar paciente / CPF / processo",
+            placeholder="Ex.: Maria, PAC00042 ou PROC-2025",
+            help="Esse campo procura em nome, código do paciente, CPF completo e número do processo.",
         )
-        label_to_id = {
-            f"{row.paciente} — {row.paciente_id} — {row.cpf_mascarado}": row.paciente_id
-            for row in pessoas.itertuples(index=False)
-        }
-        escolhidos = st.multiselect("Selecionar paciente encontrado", list(label_to_id.keys()), placeholder="Opcional")
-        paciente_ids_sel = [label_to_id[x] for x in escolhidos]
-        if len(matches["paciente_id"].unique()) > 150:
-            st.caption("Mostrando os 150 primeiros pacientes encontrados. Refine a busca para localizar um paciente específico.")
+        if len(normalize_text(busca_paciente)) >= 2:
+            matches = base[base["_search"].str.contains(normalize_text(busca_paciente), regex=False, na=False)].copy()
+            pessoas = (
+                matches[["paciente_id", "paciente", "cpf"]]
+                .drop_duplicates("paciente_id")
+                .sort_values("paciente")
+                .head(150)
+            )
+            label_to_id = {
+                f"{row.paciente} — {row.paciente_id} — {row.cpf}": row.paciente_id
+                for row in pessoas.itertuples(index=False)
+            }
+            escolhidos = st.multiselect("Selecionar paciente encontrado", list(label_to_id.keys()), placeholder="Opcional")
+            paciente_ids_sel = [label_to_id[x] for x in escolhidos]
+            if len(matches["paciente_id"].unique()) > 150:
+                st.caption("Mostrando os 150 primeiros pacientes encontrados. Refine a busca para localizar um paciente específico.")
+    else:
+        paciente_ids_sel = [str(auth_user.patient_id)]
+        st.caption("🔒 Seus dados estão limitados ao paciente vinculado à sua conta.")
 
     with st.expander("Filtros demográficos", expanded=False):
         sexo_sel = multiselect_sidebar("Sexo", base, "sexo")
@@ -460,10 +589,14 @@ subtitles = {
     "Pacientes": "Perfil dos pacientes e busca individual.",
     "Base de Dados": "Tabela detalhada, exportação e conferência dos registros filtrados.",
 }
+if not auth_user.is_manager:
+    subtitles["Pacientes"] = "Seu perfil e os processos vinculados à sua conta."
+    subtitles["Base de Dados"] = "Seus processos detalhados e exportação dos seus próprios registros."
 
 h1, h2, h3 = st.columns([7.7, 2.2, 1.8])
 with h1:
-    st.markdown('<div class="title-main">Dashboard de Judicialização na Saúde</div>', unsafe_allow_html=True)
+    dashboard_title = "Dashboard de Judicialização na Saúde" if auth_user.is_manager else "Meus Dados — Judicialização na Saúde"
+    st.markdown(f'<div class="title-main">{dashboard_title}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="title-sub">{subtitles[pagina]}</div>', unsafe_allow_html=True)
 with h2:
     st.markdown(f'<div class="filter-pill">📅&nbsp;&nbsp;{fmt_periodo(dff)}</div>', unsafe_allow_html=True)
@@ -507,7 +640,7 @@ part_custo = pct(k["custo"], base_cost_total)
 from dashboard.views import render_pages
 
 render_pages(
-    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel,
+    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_user.role,
 )
 
 st.markdown(

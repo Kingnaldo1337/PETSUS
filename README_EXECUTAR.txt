@@ -14,14 +14,14 @@ Se o comando 'streamlit' não funcionar, use sempre:
 
 O que foi adicionado nesta versão:
 - Base detalhada na aba base_processos do arquivo dados_dashboard_saude.xlsx.
-- Filtros por período, paciente, CPF mascarado, número do processo, sexo, faixa etária, condição clínica, município, UF, região, natureza, tipo de demanda, item, especialidade, desfecho, fase, esfera, liminar e urgência.
+- Filtros por período, paciente, CPF completo, número do processo, sexo, faixa etária, condição clínica, município, UF, região, natureza, tipo de demanda, item, especialidade, desfecho, fase, esfera, liminar e urgência.
 - Página Pacientes, com busca individual e ficha do paciente selecionado.
 - Página Base de Dados, com download em CSV e Excel da base filtrada.
 - Indicadores e gráficos recalculados automaticamente conforme os filtros.
 
 Como filtrar por paciente:
 - Na barra lateral, use o campo "Buscar paciente / CPF / processo".
-- Digite parte do nome, código PAC, CPF mascarado ou número do processo.
+- Digite parte do nome, código PAC, CPF completo ou número do processo.
 - Quando aparecerem pacientes encontrados, selecione o paciente exato no campo logo abaixo.
 
 Observação:
@@ -72,3 +72,38 @@ Referências funcionais usadas para modelar os campos:
 https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/
 https://www.cnj.jus.br/ferramenta-publica-facilita-definicao-de-competencia-em-processos-na-saude/
 https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12797.htm
+
+ATUALIZAÇÃO - LOGIN E PERFIS DE ACESSO
+
+O dashboard agora possui autenticação com dois perfis:
+- Gestor: visualiza a base completa e mantém a busca/filtros globais.
+- Usuário: visualiza somente os registros vinculados ao seu paciente_id.
+
+Segurança aplicada:
+- Senhas não são salvas em texto; são armazenadas com hash scrypt + salt.
+- O CPF usado no login não é salvo em texto completo no banco de usuários.
+- O filtro por paciente do usuário comum é aplicado antes de KPIs, tabelas, gráficos e exportações.
+- O cadastro público cria apenas contas de usuário comum; gestor é criado pela administração.
+
+Como criar o primeiro gestor:
+1) Dentro da pasta do projeto, execute:
+   py criar_gestor.py
+2) Informe CPF, nome e senha do gestor.
+3) Depois rode normalmente:
+   py -m streamlit run app.py
+
+Também é possível provisionar o primeiro gestor por variáveis de ambiente:
+- PETSUS_GESTOR_CPF
+- PETSUS_GESTOR_SENHA
+- PETSUS_GESTOR_NOME (opcional)
+
+Cadastro de usuário comum:
+- O cadastro de usuário comum pede apenas CPF e senha. O CPF precisa existir na base carregada pelo sistema; o paciente_id é identificado automaticamente.
+- Se a fonte trouxer `cpf`, `cpf_completo` ou `cpf_paciente`, esse CPF completo é usado diretamente.
+- Como a planilha acadêmica original contém apenas `cpf_mascarado`, esta versão cria CPFs completos de demonstração, estáveis e propositalmente não válidos como CPF real. Eles servem apenas para testes.
+- Em produção, substitua a base fictícia por uma fonte protegida com CPF completo real e restrinja o acesso conforme a LGPD.
+
+Arquivos locais de autenticação criados na primeira execução:
+- usuarios.db: banco SQLite das contas.
+- usuarios.secret: segredo local usado na proteção do identificador de CPF.
+Mantenha ambos fora de repositórios públicos e faça backup seguro no ambiente de produção.

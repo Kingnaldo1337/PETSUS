@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+usuarios.db
+usuarios.db-*
+usuarios.secret
+.streamlit/secrets.toml

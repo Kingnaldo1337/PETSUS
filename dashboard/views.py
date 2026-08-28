@@ -12,7 +12,7 @@ from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, sect
 
 LIMITE_210_SM_2026 = 210 * 1621.0
 
-def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel):
+def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, user_role="gestor"):
     
     # -----------------------------------------------------------------------------
     # Páginas
@@ -445,20 +445,30 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
     
     elif pagina == "Pacientes":
         pacientes_unicos = dff.drop_duplicates("paciente_id")
-        cols = st.columns(5)
-        fem = pct((pacientes_unicos["sexo"] == "Feminino").sum(), len(pacientes_unicos))
-        masc = pct((pacientes_unicos["sexo"] == "Masculino").sum(), len(pacientes_unicos))
-        maior_cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 1, "count")
-        cards = [
-            ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
-            ("Idade Média", f"{br_float(k['idade_media'])} anos", "média dos pacientes", "🎂", "icon-blue"),
-            ("% Feminino", f"{br_float(fem)}%", "distribuição por sexo", "♀", "icon-purple"),
-            ("% Masculino", f"{br_float(masc)}%", "distribuição por sexo", "♂", "icon-blue"),
-            ("Condição Líder", maior_cond["condicao_clinica"].iloc[0] if not maior_cond.empty else "-", "maior frequência", "🫀", "icon-orange"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
+
+        if user_role == "usuario":
+            # Na visão individual não faz sentido exibir métricas populacionais
+            # (percentual por sexo, condição líder, quantidade de pacientes etc.).
+            idade_paciente = pd.to_numeric(pacientes_unicos["idade"], errors="coerce").dropna()
+            idade_texto = "Não informada" if idade_paciente.empty else f"{br_int(idade_paciente.iloc[0])} anos"
+            idade_col, _ = st.columns([1, 4])
+            with idade_col:
+                metric_card("Idade", idade_texto, "idade do paciente", "🎂", "icon-blue")
+        else:
+            cols = st.columns(5)
+            fem = pct((pacientes_unicos["sexo"] == "Feminino").sum(), len(pacientes_unicos))
+            masc = pct((pacientes_unicos["sexo"] == "Masculino").sum(), len(pacientes_unicos))
+            maior_cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 1, "count")
+            cards = [
+                ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
+                ("Idade Média", f"{br_float(k['idade_media'])} anos", "média dos pacientes", "🎂", "icon-blue"),
+                ("% Feminino", f"{br_float(fem)}%", "distribuição por sexo", "♀", "icon-purple"),
+                ("% Masculino", f"{br_float(masc)}%", "distribuição por sexo", "♂", "icon-blue"),
+                ("Condição Líder", maior_cond["condicao_clinica"].iloc[0] if not maior_cond.empty else "-", "maior frequência", "🫀", "icon-orange"),
+            ]
+            for col, card in zip(cols, cards):
+                with col:
+                    metric_card(*card)
     
         selected_patient_id = None
         if paciente_ids_sel and len(paciente_ids_sel) == 1:
@@ -475,7 +485,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     f"""
                     <div class="patient-box">
                         <div class="patient-name">{escape(str(p['paciente']))}</div>
-                        <div class="patient-sub">{escape(str(p['paciente_id']))} · CPF {escape(str(p['cpf_mascarado']))} · {escape(str(p['municipio']))}/{escape(str(p['uf']))}</div>
+                        <div class="patient-sub">{escape(str(p['paciente_id']))} · CPF {escape(str(p['cpf']))} · {escape(str(p['municipio']))}/{escape(str(p['uf']))}</div>
                         <span class="tag">{escape(str(p['sexo']))}</span>
                         <span class="tag">{escape(idade)}</span>
                         <span class="tag">{escape(str(p['faixa_etaria']))}</span>
@@ -550,15 +560,15 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 st.dataframe(socio, hide_index=True, use_container_width=True, height=260)
         with e:
             with st.container(border=True):
-                section_title("Pacientes com maior custo acumulado")
-                tab = dff.groupby(["paciente_id", "paciente", "cpf_mascarado"], as_index=False).agg(
+                section_title("Custo acumulado dos meus processos" if user_role == "usuario" else "Pacientes com maior custo acumulado")
+                tab = dff.groupby(["paciente_id", "paciente", "cpf"], as_index=False).agg(
                     processos=("processo_id", "count"),
                     custo_total=("custo_estimado", "sum"),
                     ultimo_processo=("data_ajuizamento", "max"),
                 ).sort_values("custo_total", ascending=False).head(12)
                 tab["custo_total"] = tab["custo_total"].map(lambda x: br_money(x, compact=False))
                 tab["ultimo_processo"] = tab["ultimo_processo"].dt.strftime("%d/%m/%Y")
-                st.dataframe(tab.rename(columns={"paciente_id": "ID", "paciente": "Paciente", "cpf_mascarado": "CPF", "processos": "Processos", "custo_total": "Custo Total", "ultimo_processo": "Último Processo"}), hide_index=True, use_container_width=True, height=310)
+                st.dataframe(tab.rename(columns={"paciente_id": "ID", "paciente": "Paciente", "cpf": "CPF", "processos": "Processos", "custo_total": "Custo Total", "ultimo_processo": "Último Processo"}), hide_index=True, use_container_width=True, height=310)
     
     else:  # Base de Dados
         cols = st.columns(5)
@@ -575,9 +585,9 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
     
         with st.container(border=True):
             section_title("Base detalhada filtrada")
-            st.caption("A tabela abaixo respeita todos os filtros da barra lateral, inclusive o filtro por paciente.")
+            st.caption("A tabela abaixo contém somente os seus registros." if user_role == "usuario" else "A tabela abaixo respeita todos os filtros da barra lateral, inclusive o filtro por paciente.")
             show_cols = [
-                "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf_mascarado", "sexo", "idade", "faixa_etaria",
+                "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf", "sexo", "idade", "faixa_etaria",
                 "municipio", "uf", "regiao", "condicao_clinica", "natureza", "tipo_demanda", "item_demandado", "especialidade",
                 "medicamento_dcb", "cid", "rename_incorporado", "componente_sus", "grupo_sus", "apresentacao_padronizada",
                 "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao", "duracao_meses", "pmvg_referencia",
@@ -587,7 +597,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
             table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
             table["data_ajuizamento"] = table["data_ajuizamento"].dt.strftime("%d/%m/%Y")
             table_view = table.rename(columns={
-                "processo_id": "Processo", "data_ajuizamento": "Data", "paciente_id": "ID Paciente", "paciente": "Paciente", "cpf_mascarado": "CPF",
+                "processo_id": "Processo", "data_ajuizamento": "Data", "paciente_id": "ID Paciente", "paciente": "Paciente", "cpf": "CPF",
                 "sexo": "Sexo", "idade": "Idade", "faixa_etaria": "Faixa", "municipio": "Município", "uf": "UF", "regiao": "Região",
                 "condicao_clinica": "Condição", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "especialidade": "Especialidade",
                 "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "componente_sus": "Componente SUS", "grupo_sus": "Grupo SUS",
