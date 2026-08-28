@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
-from html import escape
 import re
 import zlib
 import unicodedata
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
+
+from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
+from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes
 
 st.set_page_config(
     page_title="Dashboard de Judicialização na Saúde",
@@ -20,6 +19,14 @@ st.set_page_config(
 )
 
 DATA_FILE = Path(__file__).with_name("dados_dashboard_saude.xlsx")
+REQUIRED_COLUMNS = {
+    "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf_mascarado",
+    "sexo", "idade", "faixa_etaria", "municipio", "uf", "regiao", "latitude",
+    "longitude", "condicao_clinica", "sus_exclusivo", "renda_familiar", "pcd",
+    "doenca_rara", "natureza", "tipo_demanda", "item_demandado", "especialidade",
+    "esfera", "fase_processual", "desfecho", "liminar", "urgente",
+    "tempo_tramitacao_dias", "tempo_liminar_dias", "custo_estimado",
+}
 
 # -----------------------------------------------------------------------------
 # Estilo visual
@@ -98,18 +105,32 @@ st.markdown(
 # Leitura e utilitários
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def load_data(path: Path) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+def load_data(path: Path, modified_at: int) -> pd.DataFrame:
     if not path.exists():
         st.error(f"Arquivo de dados não encontrado: {path}")
         st.stop()
 
-    sheets = pd.read_excel(path, sheet_name=None)
-    if "base_processos" not in sheets:
+    try:
+        base = pd.read_excel(path, sheet_name="base_processos")
+    except ValueError:
         st.error("A aba 'base_processos' não foi encontrada no Excel. Use a versão atualizada do arquivo de dados.")
         st.stop()
 
-    base = sheets["base_processos"].copy()
+    missing = sorted(REQUIRED_COLUMNS - set(base.columns))
+    if missing:
+        st.error("A aba 'base_processos' não possui todas as colunas obrigatórias.")
+        st.code(", ".join(missing))
+        st.stop()
+
+    base = base.copy()
     base["data_ajuizamento"] = pd.to_datetime(base["data_ajuizamento"], errors="coerce")
+    invalid_dates = int(base["data_ajuizamento"].isna().sum())
+    if invalid_dates == len(base):
+        st.error("Nenhuma data válida foi encontrada na coluna 'data_ajuizamento'.")
+        st.stop()
+    if invalid_dates:
+        st.warning(f"{invalid_dates} registro(s) com data inválida foram ignorados.")
+        base = base.dropna(subset=["data_ajuizamento"]).copy()
     base["custo_estimado"] = pd.to_numeric(base["custo_estimado"], errors="coerce").fillna(0)
     base["idade"] = pd.to_numeric(base["idade"], errors="coerce")
     base["tempo_tramitacao_dias"] = pd.to_numeric(base["tempo_tramitacao_dias"], errors="coerce")
@@ -123,7 +144,7 @@ def load_data(path: Path) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         .agg(" ".join, axis=1)
         .map(normalize_text)
     )
-    return base, sheets
+    return base
 
 
 def normalize_text(value: object) -> str:
@@ -289,192 +310,7 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def br_int(n: float | int) -> str:
-    if pd.isna(n):
-        return "0"
-    return f"{int(round(float(n))):,}".replace(",", ".")
-
-
-def br_float(n: float | int, casas: int = 1) -> str:
-    if pd.isna(n):
-        n = 0
-    return f"{float(n):,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def br_money(n: float | int, compact: bool = True) -> str:
-    n = 0 if pd.isna(n) else float(n)
-    if compact and abs(n) >= 1_000_000:
-        return f"R$ {br_float(n / 1_000_000, 1)} Mi"
-    if compact and abs(n) >= 1_000:
-        return f"R$ {br_float(n / 1_000, 1)} Mil"
-    return f"R$ {br_float(n, 2)}"
-
-
-def pct(part: float, total: float) -> float:
-    return 0.0 if total in [0, None] or pd.isna(total) else (float(part) / float(total)) * 100
-
-
-def fmt_periodo(df: pd.DataFrame) -> str:
-    if df.empty:
-        return "Sem dados"
-    inicio = df["data_ajuizamento"].min().strftime("%d/%m/%Y")
-    fim = df["data_ajuizamento"].max().strftime("%d/%m/%Y")
-    return f"{inicio} a {fim}"
-
-
-def section_title(title: str) -> None:
-    st.markdown(f'<div class="section-title">{escape(str(title))}</div>', unsafe_allow_html=True)
-
-
-def metric_card(label: str, value: str, subtitle: str, icon: str, icon_cls: str = "icon-blue") -> None:
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="metric-wrap">
-                <div class="metric-icon {escape(str(icon_cls), quote=True)}">{escape(str(icon))}</div>
-                <div>
-                    <div class="metric-label">{escape(str(label))}</div>
-                    <div class="metric-value">{escape(str(value))}</div>
-                    <div class="metric-sub">{escape(str(subtitle))}</div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def insight_card(title: str, value: str, desc: str) -> None:
-    st.markdown(
-        f"""
-        <div class="insight-card">
-            <div class="insight-title">{escape(str(title))}</div>
-            <div class="insight-value">{escape(str(value))}</div>
-            <div class="insight-desc">{escape(str(desc))}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def chart_layout(height: int = 310, showlegend: bool = False, legend: dict | None = None) -> dict:
-    return dict(
-        height=height,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        font=dict(color="#0B2459", family="Inter"),
-        showlegend=showlegend,
-        legend=legend or dict(),
-    )
-
-
-def empty_fig(msg: str = "Sem dados para os filtros selecionados", height: int = 300) -> go.Figure:
-    fig = go.Figure()
-    fig.update_layout(**chart_layout(height=height), annotations=[dict(text=msg, x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#667085"))])
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False)
-    return fig
-
-
-def barh(df: pd.DataFrame, label_col: str, value_col: str, text_col: str | None = None, height: int = 320, color: str = "#125CC9") -> go.Figure:
-    if df.empty:
-        return empty_fig(height=height)
-    d = df.sort_values(value_col, ascending=True).copy()
-    fig = go.Figure(go.Bar(
-        x=d[value_col],
-        y=d[label_col],
-        orientation="h",
-        marker_color=color,
-        text=d[text_col] if text_col else d[value_col],
-        textposition="outside",
-        cliponaxis=False,
-    ))
-    fig.update_layout(**chart_layout(height=height))
-    fig.update_xaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-    fig.update_yaxes(showgrid=False)
-    return fig
-
-
-def donut(df: pd.DataFrame, label_col: str, value_col: str, center: str, height: int = 320) -> go.Figure:
-    if df.empty or df[value_col].sum() == 0:
-        return empty_fig(height=height)
-    fig = go.Figure(go.Pie(
-        labels=df[label_col],
-        values=df[value_col],
-        hole=.60,
-        textinfo="percent",
-        sort=False,
-        marker_colors=["#125CC9", "#39A74A", "#2EA8C5", "#EAB308", "#8C67BE", "#94A3B8", "#F97316"],
-    ))
-    fig.update_layout(
-        **chart_layout(height=height, showlegend=True, legend=dict(x=1.02, y=.5)),
-        annotations=[dict(text=center, x=.5, y=.5, showarrow=False, font=dict(size=18, color="#0B2459"))],
-    )
-    return fig
-
-
-def monthly_line(df: pd.DataFrame, value_col: str, title_name: str, money: bool = False, height: int = 320) -> go.Figure:
-    if df.empty:
-        return empty_fig(height=height)
-    d = df.groupby("ano_mes", as_index=False).agg(valor=(value_col, "sum"))
-    d = d.sort_values("ano_mes")
-    d["label"] = pd.to_datetime(d["ano_mes"] + "-01").dt.strftime("%m/%Y")
-    d["texto"] = d["valor"].map(lambda value: br_money(value) if money else br_int(value))
-    hover_format = ",.2f" if money else ",.0f"
-    hover_prefix = "R$ " if money else ""
-    fig = go.Figure(go.Scatter(
-        x=d["label"],
-        y=d["valor"],
-        mode="lines+markers+text",
-        text=d["texto"],
-        textposition="top center",
-        name=title_name,
-        fill="tozeroy",
-        fillcolor="rgba(18, 92, 201, 0.10)",
-        hovertemplate=f"<b>%{{x}}</b><br>{title_name}: {hover_prefix}%{{y:{hover_format}}}<extra></extra>",
-        line=dict(color="#125CC9", width=3),
-        marker=dict(size=8, color="#125CC9"),
-    ))
-    fig.update_layout(**chart_layout(height=height, showlegend=False), hovermode="x unified")
-    fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-    fig.update_xaxes(showgrid=False, type="category", tickmode="auto", nticks=6, tickangle=-35, automargin=True)
-    if money:
-        fig.update_yaxes(tickprefix="R$ ", tickformat=",.0f")
-    else:
-        fig.update_yaxes(tickformat=",.0f")
-    return fig
-
-
-def top_group(df: pd.DataFrame, group_col: str, value_col: str, n: int = 10, op: str = "count") -> pd.DataFrame:
-    if df.empty:
-        return pd.DataFrame(columns=[group_col, "valor"])
-    if op == "sum":
-        out = df.groupby(group_col, as_index=False)[value_col].sum().rename(columns={value_col: "valor"})
-    elif op == "mean":
-        out = df.groupby(group_col, as_index=False)[value_col].mean().rename(columns={value_col: "valor"})
-    else:
-        out = df.groupby(group_col, as_index=False).size().rename(columns={"size": "valor"})
-    return out.sort_values("valor", ascending=False).head(n)
-
-
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="dados_filtrados", index=False)
-    return output.getvalue()
-
-
-def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
-    opts = sorted([x for x in df[column].dropna().astype(str).unique().tolist() if x.strip()])
-    return st.multiselect(label, opts, placeholder="Todos")
-
-
-from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, pct, section_title, to_excel_bytes
-
-
-base, all_sheets = load_data(DATA_FILE)
+base = load_data(DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0)
 base_total = len(base)
 base_cost_total = float(base["custo_estimado"].sum())
 
