@@ -708,7 +708,7 @@ part_custo = pct(k["custo"], base_cost_total)
 from dashboard.views import render_pages
 
 render_pages(
-    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_user.role,
+    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel,
 )
 
 st.markdown(

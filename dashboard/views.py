@@ -12,7 +12,9 @@ from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, sect
 
 LIMITE_210_SM_2026 = 210 * 1621.0
 
-def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, user_role="gestor"):
+def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel):
+    auth_state = st.session_state.get("auth_user", {})
+    user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
     
     # -----------------------------------------------------------------------------
     # Páginas
