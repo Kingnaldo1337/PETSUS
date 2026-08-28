@@ -1,0 +1,31 @@
+# Dicionário de variáveis JudSaúde adicionadas
+
+Os campos abaixo foram modelados a partir das funcionalidades públicas descritas pelo CNJ para o JudSaúde. Como a base do PETSUS é fictícia, os valores incluídos no dashboard são sintéticos/demonstrativos.
+
+| Variável | Significado no dashboard |
+|---|---|
+| `medicamento_judsaude` | Identifica registros elegíveis para a camada de análise de medicamentos. |
+| `medicamento_dcb` | Denominação Comum Brasileira / princípio ativo. |
+| `cid` | CID relacionado à condição clínica. |
+| `rename_incorporado` | Indica se o medicamento está incorporado à RENAME. |
+| `componente_sus` | Componente de financiamento/assistência farmacêutica do SUS. |
+| `grupo_sus` | Grupo de enquadramento associado ao componente. |
+| `apresentacao_padronizada` | Apresentação do medicamento utilizada na análise. |
+| `pcdt_aplicavel` | Indica existência/aplicabilidade de PCDT. |
+| `pcdt_referencia` | Identifica o protocolo/diretriz de referência usado na demonstração. |
+| `dose_prescrita` | Dose utilizada no esquema posológico. |
+| `frequencia_administracao` | Frequência do esquema posológico. |
+| `duracao_meses` | Duração estimada do tratamento. |
+| `pmvg_referencia` | PMVG de referência utilizado no cálculo demonstrativo. |
+| `valor_anual_tratamento` | Custo anual estimado do tratamento. |
+| `valor_causa_estimado` | Valor estimado da causa no cenário demonstrativo. |
+| `competencia_judsaude` | Justiça Federal ou Justiça Estadual, conforme simulação. |
+| `reu_sugerido` | União, Estado ou Município, conforme simulação. |
+| `criterio_competencia` | Regra que justificou a competência simulada. |
+| `acima_210_salarios_minimos` | Indica se o custo anual alcança o parâmetro de 210 salários mínimos usado no Tema 1234 para medicamentos não incorporados. |
+
+## Fontes funcionais
+
+- CNJ — Perguntas frequentes do JudSaúde: https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/
+- CNJ — Lançamento nacional do JudSaúde: https://www.cnj.jus.br/ferramenta-publica-facilita-definicao-de-competencia-em-processos-na-saude/
+- Planalto — Salário mínimo de 2026 (R$ 1.621,00): https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12797.htm

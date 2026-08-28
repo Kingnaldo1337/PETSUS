@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+import re
+import zlib
 import unicodedata
 
 import pandas as pd
@@ -92,8 +94,9 @@ def load_data(path: Path) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     base["tempo_tramitacao_dias"] = pd.to_numeric(base["tempo_tramitacao_dias"], errors="coerce")
     base["tempo_liminar_dias"] = pd.to_numeric(base["tempo_liminar_dias"], errors="coerce")
     base["ano_mes"] = base["data_ajuizamento"].dt.to_period("M").astype(str)
+    base = enrich_judsaude_fields(base)
     base["_search"] = (
-        base[["paciente", "paciente_id", "cpf_mascarado", "processo_id"]]
+        base[["paciente", "paciente_id", "cpf_mascarado", "processo_id", "medicamento_dcb", "cid"]]
         .fillna("")
         .astype(str)
         .agg(" ".join, axis=1)
@@ -106,6 +109,163 @@ def normalize_text(value: object) -> str:
     txt = str(value).lower().strip()
     txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
     return txt
+
+
+SALARIO_MINIMO_2026 = 1621.0
+LIMITE_210_SM_2026 = 210 * SALARIO_MINIMO_2026
+JUDSAUDE_FAQ_URL = "https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/"
+
+
+def stable_int(key: object, modulo: int) -> int:
+    return zlib.crc32(str(key).encode("utf-8")) % modulo
+
+
+def stable_choice(key: object, choices: list):
+    return choices[stable_int(key, len(choices))]
+
+
+def extract_dcb(item: object) -> str:
+    txt = str(item).strip()
+    txt = re.sub(r"\s+\d.*$", "", txt).strip()
+    return txt or str(item).strip()
+
+
+def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
+    """Adiciona campos inspirados nas funcionalidades públicas do JudSaúde.
+
+    A base deste projeto é fictícia. Portanto, os valores abaixo são sintéticos e
+    determinísticos, criados apenas para permitir a demonstração dos novos filtros,
+    indicadores e dashboards sem representar consulta oficial ao CNJ/CMED/RENAME.
+    """
+    d = base.copy()
+    item_norm = d["item_demandado"].fillna("").map(normalize_text)
+    nao_medicamento = item_norm.str.contains(r"dieta|cadeira|oxigenio|curativo|fralda", regex=True)
+    med_mask = d["natureza"].eq("Medicamentos") & ~nao_medicamento
+
+    text_fields = [
+        "medicamento_judsaude", "medicamento_dcb", "cid", "rename_incorporado",
+        "componente_sus", "grupo_sus", "apresentacao_padronizada", "pcdt_aplicavel", "pcdt_referencia",
+        "dose_prescrita", "frequencia_administracao", "competencia_judsaude",
+        "reu_sugerido", "criterio_competencia", "acima_210_salarios_minimos",
+    ]
+    for col in text_fields:
+        d[col] = "Não se aplica"
+    d["duracao_meses"] = pd.NA
+    d["pmvg_referencia"] = pd.NA
+    d["valor_anual_tratamento"] = pd.NA
+    d["valor_causa_estimado"] = pd.NA
+    d.loc[med_mask, "medicamento_judsaude"] = "Sim"
+    d.loc[~med_mask, "medicamento_judsaude"] = "Não"
+
+    cid_map = {
+        "Doenças cardiovasculares": ["I10", "I48.9", "I50.9"],
+        "Diabetes mellitus": ["E10.9", "E11.9"],
+        "Transtornos mentais": ["F32.2", "F41.1", "F31.9"],
+        "Neoplasias": ["C50.9", "C34.9", "C18.9", "C61"],
+        "Doenças respiratórias crônicas": ["J45.9", "J44.9"],
+        "Doenças raras": ["G12.0", "E75.2", "E76.0"],
+        "Doenças autoimunes": ["M06.9", "K50.9", "L40.9"],
+        "Outras": ["G89.4", "R69"],
+    }
+    pcdt_map = {
+        "Doenças cardiovasculares": "PCDT cardiovascular relacionado à condição",
+        "Diabetes mellitus": "PCDT de Diabetes Mellitus",
+        "Transtornos mentais": "PCDT relacionado ao transtorno mental",
+        "Neoplasias": "Diretriz/PCDT oncológico correspondente",
+        "Doenças respiratórias crônicas": "PCDT de Asma/DPOC",
+        "Doenças raras": "PCDT da doença rara correspondente",
+        "Doenças autoimunes": "PCDT da condição autoimune",
+        "Outras": "PCDT relacionado à condição",
+    }
+    freq_options = [
+        ("1x ao dia", 365),
+        ("1x por semana", 52),
+        ("A cada 14 dias", 26),
+        ("A cada 28 dias", 13),
+        ("1x ao mês", 12),
+    ]
+    rows = []
+    med_cols = ["processo_id", "item_demandado", "condicao_clinica", "custo_estimado", "uf"]
+    for row in d.loc[med_mask, med_cols].itertuples():
+        key = row.processo_id
+        dcb = extract_dcb(row.item_demandado)
+        cid = stable_choice(f"{key}-cid", cid_map.get(row.condicao_clinica, ["R69"]))
+        incorporado = "Sim" if stable_int(f"{key}-rename", 100) < 58 else "Não"
+
+        if incorporado == "Sim":
+            if row.condicao_clinica == "Neoplasias":
+                componente = stable_choice(f"{key}-comp", ["AF Onco", "AF Onco", "CEAF"])
+            else:
+                componente = stable_choice(f"{key}-comp", ["CEAF", "CEAF", "CEAF", "CBAF", "CBAF", "CESAF"])
+            if componente == "CEAF":
+                grupo = stable_choice(f"{key}-grupo", ["1A", "1A", "1B", "2", "3"])
+            elif componente == "AF Onco":
+                grupo = "Oncologia"
+            else:
+                grupo = componente
+        else:
+            componente = "Não incorporado"
+            grupo = "Não incorporado"
+
+        pcdt = "Sim" if stable_int(f"{key}-pcdt", 100) < (82 if incorporado == "Sim" else 28) else "Não"
+        pcdt_ref = pcdt_map.get(row.condicao_clinica, "PCDT relacionado à condição") if pcdt == "Sim" else "Sem PCDT aplicável"
+        apresentacao = str(row.item_demandado)
+        dose = stable_choice(f"{key}-dose", ["1 unidade por administração", "2 unidades por administração", "Dose conforme prescrição"])
+        frequencia, adm_ano = stable_choice(f"{key}-freq", freq_options)
+        duracao = stable_choice(f"{key}-dur", [6, 12, 12, 12, 24])
+
+        custo = float(row.custo_estimado or 0)
+        fator_anual = 0.80 + stable_int(f"{key}-anual", 51) / 100
+        valor_anual = max(custo * fator_anual, 0.0)
+        fator_uf = 0.95 + stable_int(f"{row.uf}-pmvg", 11) / 100
+        pmvg = (valor_anual / max(adm_ano, 1)) * fator_uf
+        valor_causa = valor_anual * min(duracao, 12) / 12
+        acima = "Sim" if valor_anual >= LIMITE_210_SM_2026 else "Não"
+
+        if incorporado == "Sim":
+            if componente == "AF Onco" or componente == "CESAF" or (componente == "CEAF" and grupo == "1A"):
+                competencia = "Justiça Federal"
+                reu = "União"
+                criterio = f"Medicamento incorporado — {componente} / grupo {grupo}"
+            else:
+                competencia = "Justiça Estadual"
+                reu = "Município" if componente == "CBAF" else "Estado"
+                criterio = f"Medicamento incorporado — {componente} / grupo {grupo}"
+        else:
+            competencia = "Justiça Federal" if acima == "Sim" else "Justiça Estadual"
+            reu = "União" if competencia == "Justiça Federal" else stable_choice(f"{key}-reu", ["Estado", "Estado", "Município"])
+            criterio = "Não incorporado — custo anual ≥ 210 salários mínimos" if acima == "Sim" else "Não incorporado — custo anual < 210 salários mínimos"
+
+        rows.append({
+            "index": row.Index,
+            "medicamento_dcb": dcb,
+            "cid": cid,
+            "rename_incorporado": incorporado,
+            "componente_sus": componente,
+            "grupo_sus": grupo,
+            "apresentacao_padronizada": apresentacao,
+            "pcdt_aplicavel": pcdt,
+            "pcdt_referencia": pcdt_ref,
+            "dose_prescrita": dose,
+            "frequencia_administracao": frequencia,
+            "duracao_meses": int(duracao),
+            "pmvg_referencia": round(pmvg, 2),
+            "valor_anual_tratamento": round(valor_anual, 2),
+            "valor_causa_estimado": round(valor_causa, 2),
+            "competencia_judsaude": competencia,
+            "reu_sugerido": reu,
+            "criterio_competencia": criterio,
+            "acima_210_salarios_minimos": acima,
+        })
+
+    if rows:
+        jud = pd.DataFrame(rows).set_index("index")
+        for col in jud.columns:
+            d.loc[jud.index, col] = jud[col]
+
+    for col in ["duracao_meses", "pmvg_referencia", "valor_anual_tratamento", "valor_causa_estimado"]:
+        d[col] = pd.to_numeric(d[col], errors="coerce")
+    return d
 
 
 def br_int(n: float | int) -> str:
@@ -294,7 +454,7 @@ with st.sidebar:
     )
     pagina = st.radio(
         "Navegação",
-        ["Visão Geral", "Demandas", "Custos", "Geografia", "Pacientes", "Base de Dados"],
+        ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Pacientes", "Base de Dados"],
         label_visibility="collapsed",
     )
 
@@ -353,6 +513,18 @@ with st.sidebar:
         liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
         urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
 
+    med_ref = base[base["medicamento_judsaude"] == "Sim"]
+    with st.expander("Filtros JudSaúde", expanded=False):
+        dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
+        cid_sel = multiselect_sidebar("CID", med_ref, "cid")
+        rename_sel = multiselect_sidebar("Incorporado à RENAME", med_ref, "rename_incorporado")
+        componente_sel = multiselect_sidebar("Componente SUS", med_ref, "componente_sus")
+        grupo_sel = multiselect_sidebar("Grupo de financiamento", med_ref, "grupo_sus")
+        pcdt_sel = multiselect_sidebar("PCDT aplicável", med_ref, "pcdt_aplicavel")
+        pcdt_ref_sel = multiselect_sidebar("PCDT de referência", med_ref, "pcdt_referencia")
+        competencia_sel = multiselect_sidebar("Competência JudSaúde", med_ref, "competencia_judsaude")
+        reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
+
     st.markdown("---")
     st.caption("Para limpar os filtros, desmarque as seleções ou recarregue a página.")
 
@@ -387,6 +559,15 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         "desfecho": desfecho_sel,
         "liminar": liminar_sel,
         "urgente": urgente_sel,
+        "medicamento_dcb": dcb_sel,
+        "cid": cid_sel,
+        "rename_incorporado": rename_sel,
+        "componente_sus": componente_sel,
+        "grupo_sus": grupo_sel,
+        "pcdt_aplicavel": pcdt_sel,
+        "pcdt_referencia": pcdt_ref_sel,
+        "competencia_judsaude": competencia_sel,
+        "reu_sugerido": reu_sel,
     }
     for col, selected in field_filters.items():
         if selected:
@@ -402,6 +583,8 @@ dff = apply_filters(base)
 subtitles = {
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
     "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",
+    "Medicamentos": "Incorporação à RENAME, DCB, componente SUS, PCDT, PMVG e esquema posológico.",
+    "Competência": "Competência judicial, réu sugerido e critério de custo anual alinhados ao JudSaúde.",
     "Custos": "Custos totais, ticket médio, medicamentos/insumos e especialidades mais caras.",
     "Geografia": "Distribuição por região, UF e município.",
     "Pacientes": "Perfil dos pacientes e busca individual.",
@@ -587,6 +770,160 @@ elif pagina == "Demandas":
             table["tempo_medio"] = table["tempo_medio"].map(lambda x: f"{br_int(x)} dias")
             st.dataframe(table.rename(columns={"tipo_demanda": "Tipo", "fase_processual": "Fase", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "tempo_medio": "Tempo Médio"}), hide_index=True, use_container_width=True, height=330)
 
+elif pagina == "Medicamentos":
+    med = dff[dff["medicamento_judsaude"] == "Sim"].copy()
+    st.info(
+        "Campos inspirados nas funcionalidades públicas do JudSaúde/CNJ. "
+        "Nesta base acadêmica, os valores de RENAME, PMVG, PCDT, posologia e competência são sintéticos e servem somente para demonstração do dashboard."
+    )
+    if med.empty:
+        st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
+    else:
+        incorporados = int((med["rename_incorporado"] == "Sim").sum())
+        cols = st.columns(5)
+        cards = [
+            ("Demandas de medicamentos", br_int(len(med)), "registros compatíveis com a análise JudSaúde", "💊", "icon-blue"),
+            ("DCB distintos", br_int(med["medicamento_dcb"].nunique()), "princípios ativos no recorte", "🧪", "icon-purple"),
+            ("Incorporados à RENAME", f"{br_float(pct(incorporados, len(med)))}%", f"{br_int(incorporados)} registros", "✅", "icon-green"),
+            ("PMVG médio", br_money(med["pmvg_referencia"].mean()), "preço de referência sintético por administração", "$", "icon-orange"),
+            ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "soma anual dos tratamentos", "📈", "icon-green"),
+        ]
+        for col, card in zip(cols, cards):
+            with col:
+                metric_card(*card)
+
+        a, b, c = st.columns([1.0, 1.35, 1.0])
+        with a:
+            with st.container(border=True):
+                section_title("Incorporação à RENAME")
+                ren = med.groupby("rename_incorporado", as_index=False).size().rename(columns={"size": "processos"})
+                st.plotly_chart(donut(ren, "rename_incorporado", "processos", f"{br_int(len(med))}<br>Demandas", height=330), use_container_width=True, config={"displayModeBar": False})
+        with b:
+            with st.container(border=True):
+                section_title("Componente de financiamento SUS")
+                comp = top_group(med, "componente_sus", "processo_id", 8, "count")
+                comp["texto"] = comp["valor"].map(br_int)
+                st.plotly_chart(barh(comp, "componente_sus", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
+        with c:
+            with st.container(border=True):
+                section_title("PCDT aplicável")
+                pcdt = med.groupby("pcdt_aplicavel", as_index=False).size().rename(columns={"size": "processos"})
+                st.plotly_chart(donut(pcdt, "pcdt_aplicavel", "processos", f"{br_float(pct((med['pcdt_aplicavel']=='Sim').sum(), len(med)))}%<br>com PCDT", height=330), use_container_width=True, config={"displayModeBar": False})
+
+        d, e, f = st.columns([1.2, 1.2, 1.35])
+        with d:
+            with st.container(border=True):
+                section_title("DCB mais demandadas")
+                top_dcb = top_group(med, "medicamento_dcb", "processo_id", 10, "count")
+                top_dcb["texto"] = top_dcb["valor"].map(br_int)
+                st.plotly_chart(barh(top_dcb, "medicamento_dcb", "valor", "texto", height=350), use_container_width=True, config={"displayModeBar": False})
+        with e:
+            with st.container(border=True):
+                section_title("Maior impacto anual por DCB")
+                top_val = top_group(med, "medicamento_dcb", "valor_anual_tratamento", 10, "sum")
+                top_val["texto"] = top_val["valor"].map(br_money)
+                st.plotly_chart(barh(top_val, "medicamento_dcb", "valor", "texto", height=350, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
+        with f:
+            with st.container(border=True):
+                section_title("Resumo farmacêutico")
+                tab = med.groupby("medicamento_dcb", as_index=False).agg(
+                    demandas=("processo_id", "count"),
+                    incorporados=("rename_incorporado", lambda s: int((s == "Sim").sum())),
+                    pmvg_medio=("pmvg_referencia", "mean"),
+                    valor_anual=("valor_anual_tratamento", "sum"),
+                ).sort_values("demandas", ascending=False).head(12)
+                tab["% RENAME"] = tab.apply(lambda r: f"{br_float(pct(r['incorporados'], r['demandas']))}%", axis=1)
+                tab["pmvg_medio"] = tab["pmvg_medio"].map(lambda x: br_money(x, compact=False))
+                tab["valor_anual"] = tab["valor_anual"].map(br_money)
+                st.dataframe(tab[["medicamento_dcb", "demandas", "% RENAME", "pmvg_medio", "valor_anual"]].rename(columns={
+                    "medicamento_dcb": "DCB", "demandas": "Demandas", "pmvg_medio": "PMVG Médio", "valor_anual": "Valor Anual"
+                }), hide_index=True, use_container_width=True, height=350)
+
+        with st.container(border=True):
+            section_title("Detalhamento JudSaúde")
+            detail_cols = [
+                "processo_id", "cid", "medicamento_dcb", "apresentacao_padronizada", "rename_incorporado",
+                "componente_sus", "grupo_sus", "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao",
+                "duracao_meses", "pmvg_referencia", "valor_anual_tratamento",
+            ]
+            det = med[detail_cols].sort_values("valor_anual_tratamento", ascending=False).head(200)
+            st.dataframe(det, hide_index=True, use_container_width=True, height=360, column_config={
+                "pmvg_referencia": st.column_config.NumberColumn("PMVG Referência", format="R$ %.2f"),
+                "valor_anual_tratamento": st.column_config.NumberColumn("Valor anual", format="R$ %.2f"),
+            })
+
+elif pagina == "Competência":
+    med = dff[dff["medicamento_judsaude"] == "Sim"].copy()
+    st.info(
+        f"Simulação acadêmica alinhada aos campos do JudSaúde. Para medicamentos não incorporados, o dashboard usa como referência "
+        f"210 salários mínimos de 2026 (R$ {br_float(LIMITE_210_SM_2026, 2)})."
+    )
+    if med.empty:
+        st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
+    else:
+        federal = int((med["competencia_judsaude"] == "Justiça Federal").sum())
+        estadual = int((med["competencia_judsaude"] == "Justiça Estadual").sum())
+        alto_custo = int((med["acima_210_salarios_minimos"] == "Sim").sum())
+        reu_top = top_group(med, "reu_sugerido", "processo_id", 1, "count")
+        cols = st.columns(5)
+        cards = [
+            ("Justiça Federal", f"{br_float(pct(federal, len(med)))}%", f"{br_int(federal)} processos", "🏛️", "icon-blue"),
+            ("Justiça Estadual", f"{br_float(pct(estadual, len(med)))}%", f"{br_int(estadual)} processos", "⚖️", "icon-green"),
+            ("≥ 210 salários mínimos", br_int(alto_custo), "tratamentos anuais acima do limite de referência", "💰", "icon-orange"),
+            ("Réu mais sugerido", reu_top["reu_sugerido"].iloc[0] if not reu_top.empty else "-", "maior frequência no recorte", "👤", "icon-purple"),
+            ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "soma dos valores estimados", "$", "icon-green"),
+        ]
+        for col, card in zip(cols, cards):
+            with col:
+                metric_card(*card)
+
+        a, b, c = st.columns([1.0, 1.0, 1.4])
+        with a:
+            with st.container(border=True):
+                section_title("Competência judicial")
+                comp = med.groupby("competencia_judsaude", as_index=False).size().rename(columns={"size": "processos"})
+                st.plotly_chart(donut(comp, "competencia_judsaude", "processos", f"{br_int(len(med))}<br>Demandas", height=340), use_container_width=True, config={"displayModeBar": False})
+        with b:
+            with st.container(border=True):
+                section_title("Réu sugerido")
+                reu = top_group(med, "reu_sugerido", "processo_id", 5, "count")
+                reu["texto"] = reu["valor"].map(br_int)
+                st.plotly_chart(barh(reu, "reu_sugerido", "valor", "texto", height=340, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
+        with c:
+            with st.container(border=True):
+                section_title("Competência x incorporação à RENAME")
+                cross = pd.crosstab(med["rename_incorporado"], med["competencia_judsaude"]).reset_index()
+                fig = go.Figure()
+                for nome, color in [("Justiça Federal", "#125CC9"), ("Justiça Estadual", "#39A74A")]:
+                    if nome not in cross.columns:
+                        cross[nome] = 0
+                    fig.add_trace(go.Bar(x=cross["rename_incorporado"], y=cross[nome], name=nome, marker_color=color, text=cross[nome], textposition="inside"))
+                fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
+                fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+        d, e = st.columns([1.05, 1.6])
+        with d:
+            with st.container(border=True):
+                section_title("Valor anual por componente")
+                val_comp = top_group(med, "componente_sus", "valor_anual_tratamento", 8, "sum")
+                val_comp["texto"] = val_comp["valor"].map(br_money)
+                st.plotly_chart(barh(val_comp, "componente_sus", "valor", "texto", height=360, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
+        with e:
+            with st.container(border=True):
+                section_title("Casos de maior valor anual")
+                tab = med[[
+                    "processo_id", "cid", "medicamento_dcb", "rename_incorporado", "componente_sus", "grupo_sus",
+                    "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_judsaude", "reu_sugerido"
+                ]].sort_values("valor_anual_tratamento", ascending=False).head(15)
+                st.dataframe(tab.rename(columns={
+                    "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "DCB", "rename_incorporado": "RENAME",
+                    "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual",
+                    "acima_210_salarios_minimos": "≥ 210 SM", "competencia_judsaude": "Competência", "reu_sugerido": "Réu sugerido"
+                }), hide_index=True, use_container_width=True, height=360, column_config={
+                    "Valor anual": st.column_config.NumberColumn("Valor anual", format="R$ %.2f")
+                })
+
 elif pagina == "Custos":
     cols = st.columns(5)
     med_cost = dff[dff["natureza"] == "Medicamentos"]["custo_estimado"].sum()
@@ -769,12 +1106,12 @@ elif pagina == "Pacientes":
                 with col:
                     metric_card(*card)
             section_title("Processos do paciente selecionado")
-            show_cols = ["processo_id", "data_ajuizamento", "natureza", "tipo_demanda", "item_demandado", "especialidade", "fase_processual", "desfecho", "liminar", "urgente", "custo_estimado"]
+            show_cols = ["processo_id", "data_ajuizamento", "natureza", "tipo_demanda", "item_demandado", "medicamento_dcb", "cid", "rename_incorporado", "competencia_judsaude", "especialidade", "fase_processual", "desfecho", "liminar", "urgente", "custo_estimado"]
             tabela_p = p_df[show_cols].copy()
             tabela_p["data_ajuizamento"] = tabela_p["data_ajuizamento"].dt.strftime("%d/%m/%Y")
             tabela_p["custo_estimado"] = tabela_p["custo_estimado"].map(lambda x: br_money(x, compact=False))
             st.dataframe(tabela_p.rename(columns={
-                "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
+                "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "competencia_judsaude": "Competência", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
             }), hide_index=True, use_container_width=True, height=260)
 
     a, b, c = st.columns([1.2, 1.0, 1.25])
@@ -850,7 +1187,10 @@ else:  # Base de Dados
         show_cols = [
             "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf_mascarado", "sexo", "idade", "faixa_etaria",
             "municipio", "uf", "regiao", "condicao_clinica", "natureza", "tipo_demanda", "item_demandado", "especialidade",
-            "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
+            "medicamento_dcb", "cid", "rename_incorporado", "componente_sus", "grupo_sus", "apresentacao_padronizada",
+            "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao", "duracao_meses", "pmvg_referencia",
+            "valor_anual_tratamento", "valor_causa_estimado", "competencia_judsaude", "reu_sugerido", "criterio_competencia",
+            "acima_210_salarios_minimos", "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
         ]
         table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
         table["data_ajuizamento"] = table["data_ajuizamento"].dt.strftime("%d/%m/%Y")
@@ -858,6 +1198,11 @@ else:  # Base de Dados
             "processo_id": "Processo", "data_ajuizamento": "Data", "paciente_id": "ID Paciente", "paciente": "Paciente", "cpf_mascarado": "CPF",
             "sexo": "Sexo", "idade": "Idade", "faixa_etaria": "Faixa", "municipio": "Município", "uf": "UF", "regiao": "Região",
             "condicao_clinica": "Condição", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "especialidade": "Especialidade",
+            "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "componente_sus": "Componente SUS", "grupo_sus": "Grupo SUS",
+            "apresentacao_padronizada": "Apresentação", "pcdt_aplicavel": "PCDT", "pcdt_referencia": "PCDT de Referência", "dose_prescrita": "Dose", "frequencia_administracao": "Frequência",
+            "duracao_meses": "Duração (meses)", "pmvg_referencia": "PMVG Referência", "valor_anual_tratamento": "Valor Anual Tratamento",
+            "valor_causa_estimado": "Valor da Causa", "competencia_judsaude": "Competência JudSaúde", "reu_sugerido": "Réu Sugerido",
+            "criterio_competencia": "Critério de Competência", "acima_210_salarios_minimos": "≥ 210 SM",
             "esfera": "Esfera", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente",
             "tempo_tramitacao_dias": "Tempo (dias)", "custo_estimado": "Custo Estimado"
         })
@@ -866,20 +1211,27 @@ else:  # Base de Dados
             hide_index=True,
             use_container_width=True,
             height=520,
-            column_config={"Custo Estimado": st.column_config.NumberColumn("Custo Estimado", format="R$ %.2f")},
+            column_config={
+                "Custo Estimado": st.column_config.NumberColumn("Custo Estimado", format="R$ %.2f"),
+                "PMVG Referência": st.column_config.NumberColumn("PMVG Referência", format="R$ %.2f"),
+                "Valor Anual Tratamento": st.column_config.NumberColumn("Valor Anual Tratamento", format="R$ %.2f"),
+                "Valor da Causa": st.column_config.NumberColumn("Valor da Causa", format="R$ %.2f"),
+            },
         )
 
         csv = table.to_csv(index=False).encode("utf-8-sig")
-        xlsx = to_excel_bytes(table)
-        c1, c2, c3 = st.columns([1, 1, 4])
+        c1, c2, c3 = st.columns([1, 1.35, 3.65])
         with c1:
             st.download_button("⬇️ Baixar CSV", data=csv, file_name="dados_filtrados_judicializacao_saude.csv", mime="text/csv", use_container_width=True)
         with c2:
-            st.download_button("⬇️ Baixar Excel", data=xlsx, file_name="dados_filtrados_judicializacao_saude.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            preparar_excel = st.checkbox("Preparar Excel completo", value=False, help="Ative apenas quando quiser gerar o .xlsx com todas as colunas JudSaúde. Em bases grandes, a preparação pode levar alguns segundos.")
+            if preparar_excel:
+                xlsx = to_excel_bytes(table)
+                st.download_button("⬇️ Baixar Excel", data=xlsx, file_name="dados_filtrados_judicializacao_saude.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         with c3:
-            st.info("Para filtrar por paciente: use o campo 'Buscar paciente / CPF / processo' na barra lateral. Também dá para selecionar um paciente exato quando a busca encontrar resultados.")
+            st.info("A base exportada inclui os novos campos JudSaúde. Para filtrar por paciente, use o campo 'Buscar paciente / CPF / processo' na barra lateral.")
 
 st.markdown(
-    '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os indicadores são recalculados dinamicamente conforme o período e os filtros selecionados.</div>',
+    '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os campos JudSaúde adicionados nesta versão são sintéticos e não substituem consulta oficial ao CNJ, RENAME ou CMED/Anvisa.</div>',
     unsafe_allow_html=True,
 )
