@@ -15,6 +15,21 @@ Se o comando 'streamlit' não funcionar, use sempre:
 O que foi adicionado nesta versão:
 - Base detalhada na aba base_processos do arquivo dados_dashboard_saude.xlsx.
 - Filtros por período, paciente, CPF completo, número do processo, sexo, faixa etária, condição clínica, município, UF, região, natureza, tipo de demanda, item, especialidade, desfecho, fase, esfera, liminar e urgência.
+
+VERIFICAÇÃO DE E-MAIL NO CADASTRO DE PACIENTES
+
+Antes de iniciar o aplicativo, configure o servidor SMTP por variáveis de ambiente
+ou no arquivo local .streamlit/secrets.toml (que não deve ser versionado):
+
+PETSUS_SMTP_HOST = "smtp.exemplo.com"
+PETSUS_SMTP_PORT = "587"
+PETSUS_SMTP_USERNAME = "usuario_smtp"
+PETSUS_SMTP_PASSWORD = "senha_smtp"
+PETSUS_SMTP_FROM = "nao-responda@exemplo.com"
+PETSUS_SMTP_SECURITY = "starttls"
+
+Use PETSUS_SMTP_SECURITY = "ssl" para conexão SSL direta (normalmente porta 465)
+ou "none" apenas se o servidor SMTP interno não oferecer criptografia.
 - Página Pacientes, com busca individual e ficha do paciente selecionado.
 - Página Base de Dados, com download em CSV e Excel da base filtrada.
 - Indicadores e gráficos recalculados automaticamente conforme os filtros.

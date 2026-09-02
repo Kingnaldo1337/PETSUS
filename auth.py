@@ -6,9 +6,12 @@ import hmac
 import os
 import re
 import secrets
+import smtplib
+import ssl
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +19,91 @@ import streamlit as st
 
 ROLE_USER = "usuario"
 ROLE_MANAGER = "gestor"
+OTP_TTL_MINUTES = 10
+OTP_MAX_ATTEMPTS = 5
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def normalize_email(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def is_valid_email(value: str) -> bool:
+    return bool(EMAIL_RE.fullmatch(normalize_email(value)))
+
+
+def _setting(name: str, default: str = "") -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        return str(st.secrets.get(name, default)).strip()
+    except (FileNotFoundError, AttributeError, KeyError):
+        return default
+
+
+def send_verification_code(recipient: str, code: str) -> None:
+    host = _setting("PETSUS_SMTP_HOST")
+    port_text = _setting("PETSUS_SMTP_PORT", "587")
+    username = _setting("PETSUS_SMTP_USERNAME")
+    password = _setting("PETSUS_SMTP_PASSWORD")
+    sender = _setting("PETSUS_SMTP_FROM", username)
+    security = _setting("PETSUS_SMTP_SECURITY", "starttls").lower()
+    if not host or not sender:
+        raise RuntimeError("O envio de e-mail ainda não foi configurado pela administração.")
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise RuntimeError("A porta SMTP configurada é inválida.") from exc
+
+    message = EmailMessage()
+    message["Subject"] = "Código de verificação PETSUS"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(
+        f"Seu código de verificação é: {code}\n\n"
+        f"Ele expira em {OTP_TTL_MINUTES} minutos. "
+        "Se você não solicitou este cadastro, ignore esta mensagem."
+    )
+
+    context = ssl.create_default_context()
+    if security == "ssl":
+        with smtplib.SMTP_SSL(host, port, timeout=15, context=context) as smtp:
+            if username:
+                smtp.login(username, password)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            smtp.ehlo()
+            if security == "starttls":
+                smtp.starttls(context=context)
+                smtp.ehlo()
+            if username:
+                smtp.login(username, password)
+            smtp.send_message(message)
+
+
+def _otp_digest(code: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{code}".encode("utf-8")).hexdigest()
+
+
+def _new_registration_challenge(
+    cpf: str, email: str, password_hash: str, patient_id: str, name: str
+) -> tuple[dict[str, object], str]:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    salt = secrets.token_hex(16)
+    challenge: dict[str, object] = {
+        "cpf": AuthStore.normalize_cpf(cpf),
+        "email": normalize_email(email),
+        "password_hash": password_hash,
+        "patient_id": patient_id,
+        "name": name,
+        "code_salt": salt,
+        "code_digest": _otp_digest(code, salt),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+        "attempts": 0,
+    }
+    return challenge, code
 
 
 @dataclass(frozen=True)
@@ -77,6 +165,13 @@ class AuthStore:
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+            if "email" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique "
+                "ON users(email) WHERE email IS NOT NULL"
+            )
 
     @staticmethod
     def normalize_cpf(value: str) -> str:
@@ -151,16 +246,45 @@ class AuthStore:
             return None
         return self._row_to_user(row)
 
-    def create_user(self, cpf: str, password: str, name: str, role: str, patient_id: str | None = None) -> AuthUser:
+    def create_user(
+        self,
+        cpf: str,
+        password: str,
+        name: str,
+        role: str,
+        patient_id: str | None = None,
+        email: str | None = None,
+    ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         if len(normalized) != 11:
             raise ValueError("Informe um CPF com 11 dígitos.")
         if len(password) < 8:
             raise ValueError("A senha deve ter pelo menos 8 caracteres.")
+        return self.create_user_with_password_hash(
+            normalized, self._hash_password(password), name, role, patient_id, email
+        )
+
+    def create_user_with_password_hash(
+        self,
+        cpf: str,
+        password_hash: str,
+        name: str,
+        role: str,
+        patient_id: str | None = None,
+        email: str | None = None,
+    ) -> AuthUser:
+        normalized = self.normalize_cpf(cpf)
+        normalized_email = normalize_email(email or "") or None
+        if len(normalized) != 11:
+            raise ValueError("Informe um CPF com 11 dígitos.")
+        if not password_hash.startswith("scrypt$"):
+            raise ValueError("Senha inválida.")
         if role not in {ROLE_USER, ROLE_MANAGER}:
             raise ValueError("Perfil de acesso inválido.")
         if role == ROLE_USER and not patient_id:
             raise ValueError("Usuários comuns precisam estar vinculados a um paciente.")
+        if role == ROLE_USER and not is_valid_email(normalized_email or ""):
+            raise ValueError("Informe um e-mail válido.")
         if role == ROLE_MANAGER:
             patient_id = None
 
@@ -168,16 +292,17 @@ class AuthStore:
             with self._connect() as conn:
                 cursor = conn.execute(
                     """
-                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
                         self._lookup_key(normalized),
                         self.mask_cpf(normalized),
-                        self._hash_password(password),
+                        password_hash,
                         role,
                         patient_id,
                         name.strip() or "Usuário",
+                        normalized_email,
                         datetime.now(timezone.utc).isoformat(),
                     ),
                 )
@@ -187,6 +312,8 @@ class AuthStore:
             message = str(exc).lower()
             if "patient_id" in message:
                 raise ValueError("Este paciente já possui uma conta cadastrada.") from exc
+            if "email" in message:
+                raise ValueError("Este e-mail já possui uma conta cadastrada.") from exc
             raise ValueError("Este CPF já possui uma conta cadastrada.") from exc
         return self._row_to_user(row)
 
@@ -314,26 +441,96 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
 
         with register_tab:
             st.caption("Cadastro destinado a usuários comuns. Contas de gestor são criadas pela administração.")
-            with st.form("register_form", clear_on_submit=False):
-                reg_cpf = st.text_input(
-                    "CPF",
-                    placeholder="000.000.000-00",
-                    key="reg_cpf",
-                    help="O CPF precisa existir na base de pacientes.",
-                )
-                reg_password = st.text_input("Crie uma senha", type="password", help="Mínimo de 8 caracteres.")
-                reg_submit = st.form_submit_button("Criar conta", use_container_width=True, type="primary")
-            if reg_submit:
-                resolved_patient_id, name, error = resolve_patient_for_registration(base, reg_cpf)
-                if error:
-                    st.error(error)
-                else:
-                    try:
-                        store.create_user(reg_cpf, reg_password, name or resolved_patient_id or "Usuário", ROLE_USER, resolved_patient_id)
-                    except ValueError as exc:
-                        st.error(str(exc))
+            pending = st.session_state.get("registration_challenge")
+            if not isinstance(pending, dict):
+                with st.form("register_form", clear_on_submit=False):
+                    reg_cpf = st.text_input(
+                        "CPF",
+                        placeholder="000.000.000-00",
+                        key="reg_cpf",
+                        help="O CPF precisa existir na base de pacientes.",
+                    )
+                    reg_email = st.text_input(
+                        "E-mail",
+                        placeholder="paciente@exemplo.com",
+                        autocomplete="email",
+                        help="Enviaremos um código de verificação para este endereço.",
+                    )
+                    reg_password = st.text_input("Crie uma senha", type="password", help="Mínimo de 8 caracteres.")
+                    reg_submit = st.form_submit_button("Enviar código", use_container_width=True, type="primary")
+                if reg_submit:
+                    normalized_email = normalize_email(reg_email)
+                    resolved_patient_id, name, error = resolve_patient_for_registration(base, reg_cpf)
+                    if error:
+                        st.error(error)
+                    elif not is_valid_email(normalized_email):
+                        st.error("Informe um e-mail válido.")
+                    elif len(reg_password) < 8:
+                        st.error("A senha deve ter pelo menos 8 caracteres.")
                     else:
-                        st.success("Conta criada. Agora você já pode entrar na aba ‘Entrar’.")
+                        challenge, code = _new_registration_challenge(
+                            reg_cpf,
+                            normalized_email,
+                            store._hash_password(reg_password),
+                            resolved_patient_id or "",
+                            name or resolved_patient_id or "Usuário",
+                        )
+                        try:
+                            send_verification_code(normalized_email, code)
+                        except (OSError, smtplib.SMTPException, RuntimeError) as exc:
+                            st.error(f"Não foi possível enviar o código. {exc}")
+                        else:
+                            st.session_state["registration_challenge"] = challenge
+                            st.rerun()
+            else:
+                masked_email = str(pending["email"])
+                st.info(f"Enviamos um código de 6 dígitos para {masked_email}.")
+                with st.form("verification_form", clear_on_submit=False):
+                    verification_code = st.text_input(
+                        "Código de verificação",
+                        max_chars=6,
+                        placeholder="000000",
+                        autocomplete="one-time-code",
+                    )
+                    verify_submit = st.form_submit_button("Verificar e criar conta", use_container_width=True, type="primary")
+
+                if verify_submit:
+                    expires_at = datetime.fromisoformat(str(pending["expires_at"]))
+                    supplied_digest = _otp_digest(verification_code.strip(), str(pending["code_salt"]))
+                    code_is_valid = (
+                        len(verification_code.strip()) == 6
+                        and verification_code.strip().isdigit()
+                        and datetime.now(timezone.utc) <= expires_at
+                        and hmac.compare_digest(supplied_digest, str(pending["code_digest"]))
+                    )
+                    if not code_is_valid:
+                        pending["attempts"] = int(pending.get("attempts", 0)) + 1
+                        if int(pending["attempts"]) >= OTP_MAX_ATTEMPTS:
+                            st.session_state.pop("registration_challenge", None)
+                            st.error("Código inválido. Limite de tentativas atingido; solicite um novo código.")
+                        elif datetime.now(timezone.utc) > expires_at:
+                            st.error("Código inválido ou expirado. Solicite um novo código.")
+                        else:
+                            st.error("Código inválido.")
+                    else:
+                        try:
+                            store.create_user_with_password_hash(
+                                str(pending["cpf"]),
+                                str(pending["password_hash"]),
+                                str(pending["name"]),
+                                ROLE_USER,
+                                str(pending["patient_id"]),
+                                str(pending["email"]),
+                            )
+                        except ValueError as exc:
+                            st.error(str(exc))
+                        else:
+                            st.session_state.pop("registration_challenge", None)
+                            st.success("E-mail confirmado e conta criada. Agora você já pode entrar na aba ‘Entrar’.")
+
+                if st.button("Alterar dados ou solicitar outro código", use_container_width=True):
+                    st.session_state.pop("registration_challenge", None)
+                    st.rerun()
 
         if not store.has_manager():
             st.warning(
