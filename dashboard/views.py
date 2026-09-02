@@ -525,31 +525,32 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "competencia_judsaude": "Competência", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
                 }), hide_index=True, use_container_width=True, height=260)
     
-        a, b, c = st.columns([1.2, 1.0, 1.25])
-        with a:
-            with st.container(border=True):
-                section_title("Faixa etária dos pacientes")
-                faixa = pacientes_unicos.groupby("faixa_etaria", as_index=False).size().rename(columns={"size": "pacientes"})
-                order = ["0 a 18", "19 a 30", "31 a 40", "41 a 50", "51 a 60", "61 a 70", "71+"]
-                faixa["ordem"] = faixa["faixa_etaria"].map({v: i for i, v in enumerate(order)})
-                faixa = faixa.sort_values("ordem")
-                fig = px.bar(faixa, x="faixa_etaria", y="pacientes", text=faixa["pacientes"].map(br_int))
-                fig.update_traces(marker_color="#125CC9")
-                fig.update_layout(**chart_layout(height=330))
-                fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-                fig.update_xaxes(showgrid=False)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Distribuição por sexo")
-                sexo = pacientes_unicos.groupby("sexo", as_index=False).size().rename(columns={"size": "pacientes"})
-                st.plotly_chart(donut(sexo, "sexo", "pacientes", f"{br_int(k['pacientes'])}<br>Pacientes", height=330), use_container_width=True, config={"displayModeBar": False})
-        with c:
-            with st.container(border=True):
-                section_title("Condições clínicas mais frequentes")
-                cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 10, "count")
-                cond["texto"] = cond["valor"].map(br_int)
-                st.plotly_chart(barh(cond, "condicao_clinica", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
+        if user_role != "usuario":
+            a, b, c = st.columns([1.2, 1.0, 1.25])
+            with a:
+                with st.container(border=True):
+                    section_title("Faixa etária dos pacientes")
+                    faixa = pacientes_unicos.groupby("faixa_etaria", as_index=False).size().rename(columns={"size": "pacientes"})
+                    order = ["0 a 18", "19 a 30", "31 a 40", "41 a 50", "51 a 60", "61 a 70", "71+"]
+                    faixa["ordem"] = faixa["faixa_etaria"].map({v: i for i, v in enumerate(order)})
+                    faixa = faixa.sort_values("ordem")
+                    fig = px.bar(faixa, x="faixa_etaria", y="pacientes", text=faixa["pacientes"].map(br_int))
+                    fig.update_traces(marker_color="#125CC9")
+                    fig.update_layout(**chart_layout(height=330))
+                    fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
+                    fig.update_xaxes(showgrid=False)
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            with b:
+                with st.container(border=True):
+                    section_title("Distribuição por sexo")
+                    sexo = pacientes_unicos.groupby("sexo", as_index=False).size().rename(columns={"size": "pacientes"})
+                    st.plotly_chart(donut(sexo, "sexo", "pacientes", f"{br_int(k['pacientes'])}<br>Pacientes", height=330), use_container_width=True, config={"displayModeBar": False})
+            with c:
+                with st.container(border=True):
+                    section_title("Condições clínicas mais frequentes")
+                    cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 10, "count")
+                    cond["texto"] = cond["valor"].map(br_int)
+                    st.plotly_chart(barh(cond, "condicao_clinica", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
     
         d, e = st.columns([1.05, 1.5])
         with d:
