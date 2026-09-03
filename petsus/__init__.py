@@ -1,0 +1,2 @@
+"""Núcleo da aplicação PETSUS."""
+

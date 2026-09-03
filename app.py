@@ -12,6 +12,19 @@ import streamlit as st
 from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
 from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes
 from auth import AuthStore, logout, render_auth_gate
+from petsus.access import AccessScopeError, restrict_data_for_user
+from petsus.config import (
+    DATA_FILE,
+    DATABASE_FILE,
+    JUDSAUDE_FAQ_URL,
+    LIMITE_210_SM_2026,
+    REQUIRED_COLUMNS,
+)
+from petsus.data.filters import DashboardFilters, apply_filters as filter_data
+from petsus.data.loader import DataLoadError, load_process_data
+from petsus.data.metrics import calculate_kpis
+from petsus.dashboard.navigation import navigation_for, subtitle_for
+from petsus.dashboard.pages import render_dashboard_page
 
 st.set_page_config(
     page_title="Dashboard de Judicialização na Saúde",
@@ -19,16 +32,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-DATA_FILE = Path(__file__).with_name("dados_dashboard_saude.xlsx")
-REQUIRED_COLUMNS = {
-    "processo_id", "data_ajuizamento", "paciente_id", "paciente",
-    "sexo", "idade", "faixa_etaria", "municipio", "uf", "regiao", "latitude",
-    "longitude", "condicao_clinica", "sus_exclusivo", "renda_familiar", "pcd",
-    "doenca_rara", "natureza", "tipo_demanda", "item_demandado", "especialidade",
-    "esfera", "fase_processual", "desfecho", "liminar", "urgente",
-    "tempo_tramitacao_dias", "tempo_liminar_dias", "custo_estimado",
-}
 
 # -----------------------------------------------------------------------------
 # Estilo visual
@@ -257,37 +260,15 @@ def _attach_full_cpf(base: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_data(path: Path, modified_at: int) -> pd.DataFrame:
-    if not path.exists():
-        st.error(f"Arquivo de dados não encontrado: {path}")
-        st.stop()
-
     try:
-        base = pd.read_excel(path, sheet_name="base_processos")
-    except ValueError:
-        st.error("A aba 'base_processos' não foi encontrada no Excel. Use a versão atualizada do arquivo de dados.")
-        st.stop()
-
-    missing = sorted(REQUIRED_COLUMNS - set(base.columns))
-    if missing:
-        st.error("A aba 'base_processos' não possui todas as colunas obrigatórias.")
-        st.code(", ".join(missing))
-        st.stop()
-
-    base = _attach_full_cpf(base)
-    base["data_ajuizamento"] = pd.to_datetime(base["data_ajuizamento"], errors="coerce")
-    invalid_dates = int(base["data_ajuizamento"].isna().sum())
-    if invalid_dates == len(base):
-        st.error("Nenhuma data válida foi encontrada na coluna 'data_ajuizamento'.")
+        base, invalid_dates = load_process_data(
+            path, REQUIRED_COLUMNS, _attach_full_cpf, enrich_judsaude_fields
+        )
+    except DataLoadError as exc:
+        st.error(str(exc))
         st.stop()
     if invalid_dates:
         st.warning(f"{invalid_dates} registro(s) com data inválida foram ignorados.")
-        base = base.dropna(subset=["data_ajuizamento"]).copy()
-    base["custo_estimado"] = pd.to_numeric(base["custo_estimado"], errors="coerce").fillna(0)
-    base["idade"] = pd.to_numeric(base["idade"], errors="coerce")
-    base["tempo_tramitacao_dias"] = pd.to_numeric(base["tempo_tramitacao_dias"], errors="coerce")
-    base["tempo_liminar_dias"] = pd.to_numeric(base["tempo_liminar_dias"], errors="coerce")
-    base["ano_mes"] = base["data_ajuizamento"].dt.to_period("M").astype(str)
-    base = enrich_judsaude_fields(base)
     base["_search"] = (
         base[["paciente", "paciente_id", "cpf", "processo_id", "medicamento_dcb", "cid"]]
         .fillna("")
@@ -302,11 +283,6 @@ def normalize_text(value: object) -> str:
     txt = str(value).lower().strip()
     txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
     return txt
-
-
-SALARIO_MINIMO_2026 = 1621.0
-LIMITE_210_SM_2026 = 210 * SALARIO_MINIMO_2026
-JUDSAUDE_FAQ_URL = "https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/"
 
 
 def stable_int(key: object, modulo: int) -> int:
@@ -462,21 +438,16 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
 
 
 base_all = load_data(DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0)
-auth_store = AuthStore(Path(__file__).with_name("usuarios.db"))
+auth_store = AuthStore(DATABASE_FILE)
 auth_user = render_auth_gate(auth_store, base_all)
 
 # O escopo de acesso é aplicado antes de filtros, KPIs, tabelas ou exportações.
 # Assim, um usuário comum nunca recebe registros de outros pacientes no restante do app.
-if auth_user.is_manager:
-    base = base_all.copy()
-else:
-    if not auth_user.patient_id:
-        st.error("Sua conta não está vinculada a um paciente. Procure a administração do sistema.")
-        st.stop()
-    base = base_all[base_all["paciente_id"].astype(str) == str(auth_user.patient_id)].copy()
-    if base.empty:
-        st.error("Não foram encontrados dados para o paciente vinculado à sua conta.")
-        st.stop()
+try:
+    base = restrict_data_for_user(base_all, auth_user)
+except AccessScopeError as exc:
+    st.error(str(exc))
+    st.stop()
 
 base_total = len(base)
 base_cost_total = float(base["custo_estimado"].sum())
@@ -499,20 +470,7 @@ with st.sidebar:
     if st.button("Sair", use_container_width=True, key="logout_button"):
         logout()
 
-    if auth_user.is_manager:
-        page_labels = ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Pacientes", "Base de Dados"]
-        page_map = {label: label for label in page_labels}
-    else:
-        page_labels = ["Visão Geral", "Demandas", "Medicamentos", "Competência", "Custos", "Meu Perfil", "Meus Processos"]
-        page_map = {
-            "Visão Geral": "Visão Geral",
-            "Demandas": "Demandas",
-            "Medicamentos": "Medicamentos",
-            "Competência": "Competência",
-            "Custos": "Custos",
-            "Meu Perfil": "Pacientes",
-            "Meus Processos": "Base de Dados",
-        }
+    page_labels, page_map = navigation_for(auth_user.is_manager)
     page_label = st.radio("Navegação", page_labels, label_visibility="collapsed")
     pagina = page_map[page_label]
 
@@ -587,74 +545,14 @@ with st.sidebar:
     st.caption("Para limpar os filtros, desmarque as seleções ou recarregue a página.")
 
 
-def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-    if isinstance(periodo_sel, tuple) and len(periodo_sel) == 2:
-        inicio, fim = periodo_sel
-        d = d[(d["data_ajuizamento"].dt.date >= inicio) & (d["data_ajuizamento"].dt.date <= fim)]
-
-    query = normalize_text(busca_paciente)
-    if query:
-        d = d[d["_search"].str.contains(query, regex=False, na=False)]
-    if paciente_ids_sel:
-        d = d[d["paciente_id"].isin(paciente_ids_sel)]
-
-    field_filters = {
-        "sexo": sexo_sel,
-        "faixa_etaria": faixa_sel,
-        "condicao_clinica": condicao_sel,
-        "sus_exclusivo": sus_sel,
-        "renda_familiar": renda_sel,
-        "regiao": regiao_sel,
-        "uf": uf_sel,
-        "municipio": mun_sel,
-        "natureza": natureza_sel,
-        "tipo_demanda": tipo_sel,
-        "item_demandado": item_sel,
-        "especialidade": esp_sel,
-        "esfera": esfera_sel,
-        "fase_processual": fase_sel,
-        "desfecho": desfecho_sel,
-        "liminar": liminar_sel,
-        "urgente": urgente_sel,
-        "medicamento_dcb": dcb_sel,
-        "cid": cid_sel,
-        "rename_incorporado": rename_sel,
-        "componente_sus": componente_sel,
-        "grupo_sus": grupo_sel,
-        "pcdt_aplicavel": pcdt_sel,
-        "pcdt_referencia": pcdt_ref_sel,
-        "competencia_judsaude": competencia_sel,
-        "reu_sugerido": reu_sel,
-    }
-    for col, selected in field_filters.items():
-        if selected:
-            d = d[d[col].astype(str).isin(selected)]
-    return d
-
-
 # -----------------------------------------------------------------------------
 # Cabeçalho
 # -----------------------------------------------------------------------------
-subtitles = {
-    "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
-    "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",
-    "Medicamentos": "Incorporação à RENAME, DCB, componente SUS, PCDT, PMVG e esquema posológico.",
-    "Competência": "Competência judicial, réu sugerido e critério de custo anual alinhados ao JudSaúde.",
-    "Custos": "Custos totais, ticket médio, medicamentos/insumos e especialidades mais caras.",
-    "Geografia": "Distribuição por região, UF e município.",
-    "Pacientes": "Perfil dos pacientes e busca individual.",
-    "Base de Dados": "Tabela detalhada, exportação e conferência dos registros filtrados.",
-}
-if not auth_user.is_manager:
-    subtitles["Pacientes"] = "Seu perfil e os processos vinculados à sua conta."
-    subtitles["Base de Dados"] = "Seus processos detalhados e exportação dos seus próprios registros."
-
 h1, h2, h3 = st.columns([7.7, 2.2, 1.8])
 with h1:
     dashboard_title = "Dashboard de Judicialização na Saúde" if auth_user.is_manager else "Meus Dados — Judicialização na Saúde"
     st.markdown(f'<div class="title-main">{dashboard_title}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="title-sub">{subtitles[pagina]}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="title-sub">{subtitle_for(pagina, auth_user.is_manager)}</div>', unsafe_allow_html=True)
 with h2:
     periodo_sel = st.date_input(
         "Período",
@@ -668,7 +566,31 @@ with h2:
 with h3:
     registros_header = st.empty()
 
-dff = apply_filters(base)
+period_start, period_end = (
+    periodo_sel if isinstance(periodo_sel, tuple) else (periodo_sel, periodo_sel)
+)
+active_filters = DashboardFilters(
+    start_date=period_start,
+    end_date=period_end,
+    search=normalize_text(busca_paciente),
+    patient_ids=tuple(str(value) for value in paciente_ids_sel),
+    fields={
+        "sexo": tuple(sexo_sel), "faixa_etaria": tuple(faixa_sel),
+        "condicao_clinica": tuple(condicao_sel), "sus_exclusivo": tuple(sus_sel),
+        "renda_familiar": tuple(renda_sel), "regiao": tuple(regiao_sel),
+        "uf": tuple(uf_sel), "municipio": tuple(mun_sel),
+        "natureza": tuple(natureza_sel), "tipo_demanda": tuple(tipo_sel),
+        "item_demandado": tuple(item_sel), "especialidade": tuple(esp_sel),
+        "esfera": tuple(esfera_sel), "fase_processual": tuple(fase_sel),
+        "desfecho": tuple(desfecho_sel), "liminar": tuple(liminar_sel),
+        "urgente": tuple(urgente_sel), "medicamento_dcb": tuple(dcb_sel),
+        "cid": tuple(cid_sel), "rename_incorporado": tuple(rename_sel),
+        "componente_sus": tuple(componente_sel), "grupo_sus": tuple(grupo_sel),
+        "pcdt_aplicavel": tuple(pcdt_sel), "pcdt_referencia": tuple(pcdt_ref_sel),
+        "competencia_judsaude": tuple(competencia_sel), "reu_sugerido": tuple(reu_sel),
+    },
+)
+dff = filter_data(base, active_filters)
 registros_header.markdown(f'<div class="filter-pill">🔎&nbsp;&nbsp;{br_int(len(dff))} registros</div>', unsafe_allow_html=True)
 
 if dff.empty:
@@ -678,36 +600,10 @@ if dff.empty:
 # -----------------------------------------------------------------------------
 # KPIs baseados no filtro
 # -----------------------------------------------------------------------------
-def filtered_kpis(df: pd.DataFrame) -> dict[str, float]:
-    total = len(df)
-    pacientes = df["paciente_id"].nunique()
-    custo = df["custo_estimado"].sum()
-    ticket = df["custo_estimado"].mean() if total else 0
-    tempo = df["tempo_tramitacao_dias"].mean() if total else 0
-    liminar = pct((df["liminar"] == "Sim").sum(), total)
-    urg = int((df["urgente"] == "Sim").sum())
-    proced = pct(df["desfecho"].isin(["Procedente", "Parcialmente procedente"]).sum(), total)
-    idade_media = df.drop_duplicates("paciente_id")["idade"].mean()
-    mun = df["municipio"].nunique()
-    return {
-        "total": total,
-        "pacientes": pacientes,
-        "custo": custo,
-        "ticket": ticket,
-        "tempo": tempo,
-        "liminar": liminar,
-        "urgentes": urg,
-        "procedencia": proced,
-        "idade_media": idade_media,
-        "municipios": mun,
-    }
-
-k = filtered_kpis(dff)
+k = calculate_kpis(dff)
 participacao = pct(len(dff), base_total)
 part_custo = pct(k["custo"], base_cost_total)
-from dashboard.views import render_pages
-
-render_pages(
+render_dashboard_page(
     pagina, dff, base, k, participacao, part_custo, paciente_ids_sel,
 )
 

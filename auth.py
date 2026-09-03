@@ -1,122 +1,41 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import os
 import re
 import secrets
 import smtplib
-import ssl
 import sqlite3
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-ROLE_USER = "usuario"
-ROLE_MANAGER = "gestor"
-OTP_TTL_MINUTES = 10
-OTP_MAX_ATTEMPTS = 5
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+from petsus.auth.email import send_verification_code as _send_verification_email
+from petsus.auth.models import AuthUser, ROLE_MANAGER, ROLE_USER
+from petsus.auth.registration import (
+    OTP_MAX_ATTEMPTS,
+    OTP_TTL_MINUTES,
+    is_valid_email,
+    new_registration_challenge,
+    normalize_email,
+    otp_digest,
+)
+from petsus.auth.security import hash_password, verify_password
 
-
-def normalize_email(value: str) -> str:
-    return (value or "").strip().lower()
-
-
-def is_valid_email(value: str) -> bool:
-    return bool(EMAIL_RE.fullmatch(normalize_email(value)))
-
-
-def _setting(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    if value:
-        return value
-    try:
-        return str(st.secrets.get(name, default)).strip()
-    except (FileNotFoundError, AttributeError, KeyError):
-        return default
-
-
-def send_verification_code(recipient: str, code: str) -> None:
-    host = _setting("PETSUS_SMTP_HOST")
-    port_text = _setting("PETSUS_SMTP_PORT", "587")
-    username = _setting("PETSUS_SMTP_USERNAME")
-    password = _setting("PETSUS_SMTP_PASSWORD")
-    sender = _setting("PETSUS_SMTP_FROM", username)
-    security = _setting("PETSUS_SMTP_SECURITY", "starttls").lower()
-    if not host or not sender:
-        raise RuntimeError("O envio de e-mail ainda não foi configurado pela administração.")
-    try:
-        port = int(port_text)
-    except ValueError as exc:
-        raise RuntimeError("A porta SMTP configurada é inválida.") from exc
-
-    message = EmailMessage()
-    message["Subject"] = "Código de verificação PETSUS"
-    message["From"] = sender
-    message["To"] = recipient
-    message.set_content(
-        f"Seu código de verificação é: {code}\n\n"
-        f"Ele expira em {OTP_TTL_MINUTES} minutos. "
-        "Se você não solicitou este cadastro, ignore esta mensagem."
-    )
-
-    context = ssl.create_default_context()
-    if security == "ssl":
-        with smtplib.SMTP_SSL(host, port, timeout=15, context=context) as smtp:
-            if username:
-                smtp.login(username, password)
-            smtp.send_message(message)
-    else:
-        with smtplib.SMTP(host, port, timeout=15) as smtp:
-            smtp.ehlo()
-            if security == "starttls":
-                smtp.starttls(context=context)
-                smtp.ehlo()
-            if username:
-                smtp.login(username, password)
-            smtp.send_message(message)
+send_verification_code = _send_verification_email
 
 
 def _otp_digest(code: str, salt: str) -> str:
-    return hashlib.sha256(f"{salt}:{code}".encode("utf-8")).hexdigest()
+    return otp_digest(code, salt)
 
 
 def _new_registration_challenge(
     cpf: str, email: str, password_hash: str, patient_id: str, name: str
 ) -> tuple[dict[str, object], str]:
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    salt = secrets.token_hex(16)
-    challenge: dict[str, object] = {
-        "cpf": AuthStore.normalize_cpf(cpf),
-        "email": normalize_email(email),
-        "password_hash": password_hash,
-        "patient_id": patient_id,
-        "name": name,
-        "code_salt": salt,
-        "code_digest": _otp_digest(code, salt),
-        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
-        "attempts": 0,
-    }
-    return challenge, code
-
-
-@dataclass(frozen=True)
-class AuthUser:
-    id: int
-    name: str
-    role: str
-    patient_id: str | None
-    cpf_display: str
-
-    @property
-    def is_manager(self) -> bool:
-        return self.role == ROLE_MANAGER
+    return new_registration_challenge(cpf, email, password_hash, patient_id, name)
 
 
 class AuthStore:
@@ -197,31 +116,11 @@ class AuthStore:
 
     @staticmethod
     def _hash_password(password: str) -> str:
-        salt = secrets.token_bytes(16)
-        n, r, p = 2**14, 8, 1
-        derived = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=32)
-        return "scrypt${}${}${}${}${}".format(
-            n,
-            r,
-            p,
-            base64.urlsafe_b64encode(salt).decode("ascii"),
-            base64.urlsafe_b64encode(derived).decode("ascii"),
-        )
+        return hash_password(password)
 
     @staticmethod
     def _verify_password(password: str, encoded: str) -> bool:
-        try:
-            algorithm, n, r, p, salt_b64, hash_b64 = encoded.split("$", 5)
-            if algorithm != "scrypt":
-                return False
-            salt = base64.urlsafe_b64decode(salt_b64.encode("ascii"))
-            expected = base64.urlsafe_b64decode(hash_b64.encode("ascii"))
-            actual = hashlib.scrypt(
-                password.encode("utf-8"), salt=salt, n=int(n), r=int(r), p=int(p), dklen=len(expected)
-            )
-            return hmac.compare_digest(actual, expected)
-        except (ValueError, TypeError):
-            return False
+        return verify_password(password, encoded)
 
     @staticmethod
     def _row_to_user(row: sqlite3.Row) -> AuthUser:

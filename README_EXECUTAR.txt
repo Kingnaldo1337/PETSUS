@@ -9,6 +9,24 @@ Como executar no Windows:
 3) Rode o dashboard:
    py -m streamlit run app.py
 
+ESTRUTURA PARA MANUTENÇÃO
+
+- app.py: composição da aplicação Streamlit e da interface principal.
+- criar_gestor.py: comando administrativo para provisionar gestores.
+- petsus/config.py: caminhos e constantes globais.
+- petsus/access.py: restrição de dados conforme o perfil autenticado.
+- petsus/data/: leitura da planilha, filtros e indicadores.
+- petsus/auth/: modelos, senhas, verificação de e-mail e envio SMTP.
+- petsus/dashboard/: navegação e despacho das páginas.
+- dashboard/charts.py: construção dos gráficos Plotly.
+- dashboard/ui.py: componentes visuais e formatação.
+- dashboard/views.py: conteúdo das páginas existentes.
+- tests/: testes de autenticação, dados e responsividade.
+
+A lógica de dados em petsus/data não depende do Streamlit. Isso permite testar
+filtros e indicadores separadamente da interface e facilita a futura troca da
+planilha por outra fonte de dados.
+
 Se o comando 'streamlit' não funcionar, use sempre:
    py -m streamlit run app.py
 
