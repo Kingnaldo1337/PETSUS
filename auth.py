@@ -305,8 +305,10 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
             margin-inline: auto !important;
         }
         .st-key-auth_panel [data-testid="stForm"],
-        div[data-testid="stTabs"] [data-testid="stForm"] {
-            width: 100% !important;
+        div[data-testid="stTabs"] [data-testid="stForm"],
+        div[data-testid="stForm"] {
+            width: min(100%, 620px) !important;
+            max-width: 620px !important;
             margin-inline: auto !important;
         }
         .st-key-auth_panel, .st-key-auth_panel * {
