@@ -15,8 +15,3 @@ REQUIRED_COLUMNS = {
 
 SALARIO_MINIMO_2026 = 1621.0
 LIMITE_210_SM_2026 = 210 * SALARIO_MINIMO_2026
-JUDSAUDE_FAQ_URL = (
-    "https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/"
-    "justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/"
-)
-

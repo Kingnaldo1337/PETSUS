@@ -293,10 +293,21 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         .auth-title { font-size: 2rem; font-weight: 900; color: #0B2459; margin-top: .35rem; }
         .auth-sub { color: #667085; margin: .35rem 0 1.1rem; }
         .st-key-auth_panel {
-            width: min(100%, 560px);
-            max-width: 560px;
+            width: 100%;
             min-width: 0;
             margin-inline: auto;
+        }
+        .st-key-auth_panel [data-testid="stTabs"],
+        div[data-testid="stTabs"] {
+            width: min(100%, 620px) !important;
+            max-width: 620px !important;
+            min-width: 0;
+            margin-inline: auto !important;
+        }
+        .st-key-auth_panel [data-testid="stForm"],
+        div[data-testid="stTabs"] [data-testid="stForm"] {
+            width: 100% !important;
+            margin-inline: auto !important;
         }
         .st-key-auth_panel, .st-key-auth_panel * {
             box-sizing: border-box;
@@ -311,7 +322,9 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         @media (max-width: 640px) {
             .auth-wrap { margin-top: 1rem; padding-inline: .25rem; }
             .auth-title { font-size: 1.65rem; line-height: 1.15; }
-            .st-key-auth_panel { width: 100%; }
+            .st-key-auth_panel,
+            .st-key-auth_panel [data-testid="stTabs"],
+            div[data-testid="stTabs"] { width: 100% !important; }
         }
         </style>
         <div class="auth-wrap">

@@ -163,9 +163,9 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 st.dataframe(table.rename(columns={"tipo_demanda": "Tipo", "fase_processual": "Fase", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "tempo_medio": "Tempo Médio"}), hide_index=True, use_container_width=True, height=330)
     
     elif pagina == "Medicamentos":
-        med = dff[dff["medicamento_judsaude"] == "Sim"].copy()
+        med = dff[dff["medicamento_petsus"] == "Sim"].copy()
         st.info(
-            "Campos inspirados nas funcionalidades públicas do JudSaúde/CNJ. "
+            "Campos de análise de medicamentos do PetSUS. "
             "Nesta base acadêmica, os valores de RENAME, PMVG, PCDT, posologia e competência são sintéticos e servem somente para demonstração do dashboard."
         )
         if med.empty:
@@ -174,7 +174,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
             incorporados = int((med["rename_incorporado"] == "Sim").sum())
             cols = st.columns(5)
             cards = [
-                ("Demandas de medicamentos", br_int(len(med)), "registros compatíveis com a análise JudSaúde", "💊", "icon-blue"),
+                ("Demandas de medicamentos", br_int(len(med)), "registros compatíveis com a análise PetSUS", "💊", "icon-blue"),
                 ("DCB distintos", br_int(med["medicamento_dcb"].nunique()), "princípios ativos no recorte", "🧪", "icon-purple"),
                 ("Incorporados à RENAME", f"{br_float(pct(incorporados, len(med)))}%", f"{br_int(incorporados)} registros", "✅", "icon-green"),
                 ("PMVG médio", br_money(med["pmvg_referencia"].mean()), "preço de referência sintético por administração", "$", "icon-orange"),
@@ -232,7 +232,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     }), hide_index=True, use_container_width=True, height=350)
     
             with st.container(border=True):
-                section_title("Detalhamento JudSaúde")
+                section_title("Detalhamento PetSUS")
                 detail_cols = [
                     "processo_id", "cid", "medicamento_dcb", "apresentacao_padronizada", "rename_incorporado",
                     "componente_sus", "grupo_sus", "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao",
@@ -245,16 +245,16 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 })
     
     elif pagina == "Competência":
-        med = dff[dff["medicamento_judsaude"] == "Sim"].copy()
+        med = dff[dff["medicamento_petsus"] == "Sim"].copy()
         st.info(
-            f"Simulação acadêmica alinhada aos campos do JudSaúde. Para medicamentos não incorporados, o dashboard usa como referência "
+            f"Simulação acadêmica com os campos do PetSUS. Para medicamentos não incorporados, o dashboard usa como referência "
             f"210 salários mínimos de 2026 (R$ {br_float(LIMITE_210_SM_2026, 2)})."
         )
         if med.empty:
             st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
         else:
-            federal = int((med["competencia_judsaude"] == "Justiça Federal").sum())
-            estadual = int((med["competencia_judsaude"] == "Justiça Estadual").sum())
+            federal = int((med["competencia_petsus"] == "Justiça Federal").sum())
+            estadual = int((med["competencia_petsus"] == "Justiça Estadual").sum())
             alto_custo = int((med["acima_210_salarios_minimos"] == "Sim").sum())
             reu_top = top_group(med, "reu_sugerido", "processo_id", 1, "count")
             cols = st.columns(5)
@@ -273,8 +273,8 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
             with a:
                 with st.container(border=True):
                     section_title("Competência judicial")
-                    comp = med.groupby("competencia_judsaude", as_index=False).size().rename(columns={"size": "processos"})
-                    st.plotly_chart(donut(comp, "competencia_judsaude", "processos", f"{br_int(len(med))}<br>Demandas", height=340), use_container_width=True, config={"displayModeBar": False})
+                    comp = med.groupby("competencia_petsus", as_index=False).size().rename(columns={"size": "processos"})
+                    st.plotly_chart(donut(comp, "competencia_petsus", "processos", f"{br_int(len(med))}<br>Demandas", height=340), use_container_width=True, config={"displayModeBar": False})
             with b:
                 with st.container(border=True):
                     section_title("Réu sugerido")
@@ -284,7 +284,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
             with c:
                 with st.container(border=True):
                     section_title("Competência x incorporação à RENAME")
-                    cross = pd.crosstab(med["rename_incorporado"], med["competencia_judsaude"]).reset_index()
+                    cross = pd.crosstab(med["rename_incorporado"], med["competencia_petsus"]).reset_index()
                     fig = go.Figure()
                     for nome, color in [("Justiça Federal", "#125CC9"), ("Justiça Estadual", "#39A74A")]:
                         if nome not in cross.columns:
@@ -306,12 +306,12 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     section_title("Casos de maior valor anual")
                     tab = med[[
                         "processo_id", "cid", "medicamento_dcb", "rename_incorporado", "componente_sus", "grupo_sus",
-                        "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_judsaude", "reu_sugerido"
+                        "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_petsus", "reu_sugerido"
                     ]].sort_values("valor_anual_tratamento", ascending=False).head(15)
                     st.dataframe(tab.rename(columns={
                         "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "DCB", "rename_incorporado": "RENAME",
                         "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual",
-                        "acima_210_salarios_minimos": "≥ 210 SM", "competencia_judsaude": "Competência", "reu_sugerido": "Réu sugerido"
+                        "acima_210_salarios_minimos": "≥ 210 SM", "competencia_petsus": "Competência", "reu_sugerido": "Réu sugerido"
                     }), hide_index=True, use_container_width=True, height=360, column_config={
                         "Valor anual": st.column_config.NumberColumn("Valor anual", format="R$ %.2f")
                     })
@@ -517,12 +517,12 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     with col:
                         metric_card(*card)
                 section_title("Processos do paciente selecionado")
-                show_cols = ["processo_id", "data_ajuizamento", "natureza", "tipo_demanda", "item_demandado", "medicamento_dcb", "cid", "rename_incorporado", "competencia_judsaude", "especialidade", "fase_processual", "desfecho", "liminar", "urgente", "custo_estimado"]
+                show_cols = ["processo_id", "data_ajuizamento", "natureza", "tipo_demanda", "item_demandado", "medicamento_dcb", "cid", "rename_incorporado", "competencia_petsus", "especialidade", "fase_processual", "desfecho", "liminar", "urgente", "custo_estimado"]
                 tabela_p = p_df[show_cols].copy()
                 tabela_p["data_ajuizamento"] = tabela_p["data_ajuizamento"].dt.strftime("%d/%m/%Y")
                 tabela_p["custo_estimado"] = tabela_p["custo_estimado"].map(lambda x: br_money(x, compact=False))
                 st.dataframe(tabela_p.rename(columns={
-                    "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "competencia_judsaude": "Competência", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
+                    "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "competencia_petsus": "Competência", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
                 }), hide_index=True, use_container_width=True, height=260)
     
         if user_role != "usuario":
@@ -608,7 +608,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 "municipio", "uf", "regiao", "condicao_clinica", "natureza", "tipo_demanda", "item_demandado", "especialidade",
                 "medicamento_dcb", "cid", "rename_incorporado", "componente_sus", "grupo_sus", "apresentacao_padronizada",
                 "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao", "duracao_meses", "pmvg_referencia",
-                "valor_anual_tratamento", "valor_causa_estimado", "competencia_judsaude", "reu_sugerido", "criterio_competencia",
+                "valor_anual_tratamento", "valor_causa_estimado", "competencia_petsus", "reu_sugerido", "criterio_competencia",
                 "acima_210_salarios_minimos", "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
             ]
             table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
@@ -620,7 +620,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "componente_sus": "Componente SUS", "grupo_sus": "Grupo SUS",
                 "apresentacao_padronizada": "Apresentação", "pcdt_aplicavel": "PCDT", "pcdt_referencia": "PCDT de Referência", "dose_prescrita": "Dose", "frequencia_administracao": "Frequência",
                 "duracao_meses": "Duração (meses)", "pmvg_referencia": "PMVG Referência", "valor_anual_tratamento": "Valor Anual Tratamento",
-                "valor_causa_estimado": "Valor da Causa", "competencia_judsaude": "Competência JudSaúde", "reu_sugerido": "Réu Sugerido",
+                "valor_causa_estimado": "Valor da Causa", "competencia_petsus": "Competência PetSUS", "reu_sugerido": "Réu Sugerido",
                 "criterio_competencia": "Critério de Competência", "acima_210_salarios_minimos": "≥ 210 SM",
                 "esfera": "Esfera", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente",
                 "tempo_tramitacao_dias": "Tempo (dias)", "custo_estimado": "Custo Estimado"

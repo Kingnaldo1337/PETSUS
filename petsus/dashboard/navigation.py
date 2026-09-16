@@ -18,7 +18,7 @@ PAGE_SUBTITLES = {
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
     "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",
     "Medicamentos": "Incorporação à RENAME, DCB, componente SUS, PCDT, PMVG e esquema posológico.",
-    "Competência": "Competência judicial, réu sugerido e critério de custo anual alinhados ao JudSaúde.",
+    "Competência": "Competência judicial, réu sugerido e critério de custo anual usados pelo PetSUS.",
     "Custos": "Custos totais, ticket médio, medicamentos/insumos e especialidades mais caras.",
     "Geografia": "Distribuição por região, UF e município.",
     "Pacientes": "Perfil dos pacientes e busca individual.",
@@ -39,4 +39,3 @@ def subtitle_for(page: str, is_manager: bool) -> str:
     if not is_manager and page == "Base de Dados":
         return "Seus processos detalhados e exportação dos seus próprios registros."
     return PAGE_SUBTITLES[page]
-

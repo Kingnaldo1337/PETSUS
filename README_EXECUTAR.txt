@@ -60,7 +60,7 @@ Como filtrar por paciente:
 Observação:
 Os dados são fictícios e servem para demonstração acadêmica. Para usar dados reais, substitua as linhas da aba base_processos mantendo os nomes das colunas.
 
-ATUALIZAÇÃO - CAMPOS JUDSAÚDE
+ATUALIZAÇÃO - CAMPOS PETSUS
 
 Foram adicionadas duas novas telas ao dashboard:
 - Medicamentos: DCB, CID, incorporação à RENAME, componente/grupo SUS, PCDT, PMVG, apresentação e posologia.
@@ -74,11 +74,11 @@ Novos filtros na barra lateral:
 - Grupo de financiamento
 - PCDT aplicável
 - PCDT de referência
-- Competência JudSaúde
+- Competência PetSUS
 - Réu sugerido
 
 Novas variáveis incorporadas à base exibida/exportada:
-- medicamento_judsaude
+- medicamento_petsus
 - medicamento_dcb
 - cid
 - rename_incorporado
@@ -93,16 +93,15 @@ Novas variáveis incorporadas à base exibida/exportada:
 - pmvg_referencia
 - valor_anual_tratamento
 - valor_causa_estimado
-- competencia_judsaude
+- competencia_petsus
 - reu_sugerido
 - criterio_competencia
 - acima_210_salarios_minimos
 
 IMPORTANTE:
-A base original do projeto é fictícia. Os novos valores JudSaúde são gerados de forma sintética e determinística apenas para fins acadêmicos/demonstração. Eles NÃO representam consulta oficial ao CNJ, à RENAME ou à CMED/Anvisa.
+A base original do projeto é fictícia. Os novos valores PetSUS são gerados de forma sintética e determinística apenas para fins acadêmicos/demonstração. Eles NÃO representam consulta oficial ao CNJ, à RENAME ou à CMED/Anvisa.
 
 Referências funcionais usadas para modelar os campos:
-https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/
 https://www.cnj.jus.br/ferramenta-publica-facilita-definicao-de-competencia-em-processos-na-saude/
 https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12797.htm
 

@@ -16,7 +16,6 @@ from petsus.access import AccessScopeError, restrict_data_for_user
 from petsus.config import (
     DATA_FILE,
     DATABASE_FILE,
-    JUDSAUDE_FAQ_URL,
     LIMITE_210_SM_2026,
     REQUIRED_COLUMNS,
 )
@@ -46,6 +45,53 @@ st.markdown(
         .block-container { max-width: 1700px; padding-top: 1.05rem; padding-bottom: 1.2rem; padding-left: 1.2rem; padding-right: 1.2rem; container-type: inline-size; container-name: dashboard; }
         [data-testid="stSidebar"] { background: linear-gradient(180deg, #083E82 0%, #072F66 52%, #061F45 100%); }
         [data-testid="stSidebar"] * { color: white; }
+        /* Mantém os ícones de ajuda legíveis sobre o fundo azul da barra lateral. */
+        [data-testid="stSidebar"] [data-testid="stTooltipIcon"],
+        [data-testid="stSidebar"] [data-testid="stTooltipIcon"] button {
+            color: #FFFFFF !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg {
+            color: #FFFFFF !important;
+            fill: none !important;
+            stroke: #FFFFFF !important;
+            opacity: 1 !important;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .28));
+        }
+        [data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg path {
+            fill: none !important;
+            stroke: #FFFFFF !important;
+            stroke-width: 2 !important;
+            stroke-linecap: round !important;
+            stroke-linejoin: round !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg circle {
+            fill: none !important;
+            stroke: #FFFFFF !important;
+        }
+        /* Expansores dos grupos de filtros: mantém contraste abertos e fechados. */
+        [data-testid="stSidebar"] [data-testid="stExpander"] details,
+        [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
+            background: transparent !important;
+            border-color: rgba(255, 255, 255, .34) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary,
+        [data-testid="stSidebar"] [data-testid="stExpander"] details[open] summary {
+            background: rgba(255, 255, 255, .12) !important;
+            color: #FFFFFF !important;
+            border-radius: .5rem !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+            background: rgba(255, 255, 255, .20) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary *,
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary svg,
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary svg path {
+            color: #FFFFFF !important;
+            fill: #FFFFFF !important;
+            stroke: #FFFFFF !important;
+            opacity: 1 !important;
+        }
         [data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea,
         [data-testid="stSidebar"] [role="combobox"] { color: #0B2459 !important; -webkit-text-fill-color: #0B2459 !important; }
         [data-testid="stSidebar"] div[data-baseweb="select"],
@@ -262,7 +308,7 @@ def _attach_full_cpf(base: pd.DataFrame) -> pd.DataFrame:
 def load_data(path: Path, modified_at: int) -> pd.DataFrame:
     try:
         base, invalid_dates = load_process_data(
-            path, REQUIRED_COLUMNS, _attach_full_cpf, enrich_judsaude_fields
+            path, REQUIRED_COLUMNS, _attach_full_cpf, enrich_petsus_fields
         )
     except DataLoadError as exc:
         st.error(str(exc))
@@ -299,8 +345,8 @@ def extract_dcb(item: object) -> str:
     return txt or str(item).strip()
 
 
-def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
-    """Adiciona campos inspirados nas funcionalidades públicas do JudSaúde.
+def enrich_petsus_fields(base: pd.DataFrame) -> pd.DataFrame:
+    """Adiciona os campos de análise de medicamentos do PetSUS.
 
     A base deste projeto é fictícia. Portanto, os valores abaixo são sintéticos e
     determinísticos, criados apenas para permitir a demonstração dos novos filtros,
@@ -312,9 +358,9 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
     med_mask = d["natureza"].eq("Medicamentos") & ~nao_medicamento
 
     text_fields = [
-        "medicamento_judsaude", "medicamento_dcb", "cid", "rename_incorporado",
+        "medicamento_petsus", "medicamento_dcb", "cid", "rename_incorporado",
         "componente_sus", "grupo_sus", "apresentacao_padronizada", "pcdt_aplicavel", "pcdt_referencia",
-        "dose_prescrita", "frequencia_administracao", "competencia_judsaude",
+        "dose_prescrita", "frequencia_administracao", "competencia_petsus",
         "reu_sugerido", "criterio_competencia", "acima_210_salarios_minimos",
     ]
     for col in text_fields:
@@ -323,8 +369,8 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
     d["pmvg_referencia"] = pd.NA
     d["valor_anual_tratamento"] = pd.NA
     d["valor_causa_estimado"] = pd.NA
-    d.loc[med_mask, "medicamento_judsaude"] = "Sim"
-    d.loc[~med_mask, "medicamento_judsaude"] = "Não"
+    d.loc[med_mask, "medicamento_petsus"] = "Sim"
+    d.loc[~med_mask, "medicamento_petsus"] = "Não"
 
     cid_map = {
         "Doenças cardiovasculares": ["I10", "I48.9", "I50.9"],
@@ -421,7 +467,7 @@ def enrich_judsaude_fields(base: pd.DataFrame) -> pd.DataFrame:
             "pmvg_referencia": round(pmvg, 2),
             "valor_anual_tratamento": round(valor_anual, 2),
             "valor_causa_estimado": round(valor_causa, 2),
-            "competencia_judsaude": competencia,
+            "competencia_petsus": competencia,
             "reu_sugerido": reu,
             "criterio_competencia": criterio,
             "acima_210_salarios_minimos": acima,
@@ -498,7 +544,12 @@ with st.sidebar:
                 f"{row.paciente} — {row.paciente_id} — {row.cpf}": row.paciente_id
                 for row in pessoas.itertuples(index=False)
             }
-            escolhidos = st.multiselect("Selecionar paciente encontrado", list(label_to_id.keys()), placeholder="Opcional")
+            escolhidos = st.multiselect(
+                "Selecionar paciente encontrado",
+                list(label_to_id.keys()),
+                placeholder="Opcional",
+                help="Seleciona um ou mais pacientes encontrados para limitar todos os indicadores e tabelas aos seus processos.",
+            )
             paciente_ids_sel = [label_to_id[x] for x in escolhidos]
             if len(matches["paciente_id"].unique()) > 150:
                 st.caption("Mostrando os 150 primeiros pacientes encontrados. Refine a busca para localizar um paciente específico.")
@@ -529,8 +580,8 @@ with st.sidebar:
         liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
         urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
 
-    med_ref = base[base["medicamento_judsaude"] == "Sim"]
-    with st.expander("Filtros JudSaúde", expanded=False):
+    med_ref = base[base["medicamento_petsus"] == "Sim"]
+    with st.expander("Filtros PetSUS", expanded=False):
         dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
         cid_sel = multiselect_sidebar("CID", med_ref, "cid")
         rename_sel = multiselect_sidebar("Incorporado à RENAME", med_ref, "rename_incorporado")
@@ -538,7 +589,7 @@ with st.sidebar:
         grupo_sel = multiselect_sidebar("Grupo de financiamento", med_ref, "grupo_sus")
         pcdt_sel = multiselect_sidebar("PCDT aplicável", med_ref, "pcdt_aplicavel")
         pcdt_ref_sel = multiselect_sidebar("PCDT de referência", med_ref, "pcdt_referencia")
-        competencia_sel = multiselect_sidebar("Competência JudSaúde", med_ref, "competencia_judsaude")
+        competencia_sel = multiselect_sidebar("Competência PetSUS", med_ref, "competencia_petsus")
         reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
 
     st.markdown("---")
@@ -587,7 +638,7 @@ active_filters = DashboardFilters(
         "cid": tuple(cid_sel), "rename_incorporado": tuple(rename_sel),
         "componente_sus": tuple(componente_sel), "grupo_sus": tuple(grupo_sel),
         "pcdt_aplicavel": tuple(pcdt_sel), "pcdt_referencia": tuple(pcdt_ref_sel),
-        "competencia_judsaude": tuple(competencia_sel), "reu_sugerido": tuple(reu_sel),
+        "competencia_petsus": tuple(competencia_sel), "reu_sugerido": tuple(reu_sel),
     },
 )
 dff = filter_data(base, active_filters)
@@ -608,6 +659,6 @@ render_dashboard_page(
 )
 
 st.markdown(
-    '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os campos JudSaúde adicionados nesta versão são sintéticos e não substituem consulta oficial ao CNJ, RENAME ou CMED/Anvisa.</div>',
+    '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os campos PetSUS adicionados nesta versão são sintéticos e não substituem consulta oficial ao CNJ, RENAME ou CMED/Anvisa.</div>',
     unsafe_allow_html=True,
 )

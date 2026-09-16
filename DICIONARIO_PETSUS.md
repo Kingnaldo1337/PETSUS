@@ -1,10 +1,10 @@
-# Dicionário de variáveis JudSaúde adicionadas
+# Dicionário de variáveis PetSUS adicionadas
 
-Os campos abaixo foram modelados a partir das funcionalidades públicas descritas pelo CNJ para o JudSaúde. Como a base do PETSUS é fictícia, os valores incluídos no dashboard são sintéticos/demonstrativos.
+Os campos abaixo compõem a análise de medicamentos do PetSUS. Como a base do projeto é fictícia, os valores incluídos no dashboard são sintéticos/demonstrativos.
 
 | Variável | Significado no dashboard |
 |---|---|
-| `medicamento_judsaude` | Identifica registros elegíveis para a camada de análise de medicamentos. |
+| `medicamento_petsus` | Identifica registros elegíveis para a camada de análise de medicamentos. |
 | `medicamento_dcb` | Denominação Comum Brasileira / princípio ativo. |
 | `cid` | CID relacionado à condição clínica. |
 | `rename_incorporado` | Indica se o medicamento está incorporado à RENAME. |
@@ -19,13 +19,12 @@ Os campos abaixo foram modelados a partir das funcionalidades públicas descrita
 | `pmvg_referencia` | PMVG de referência utilizado no cálculo demonstrativo. |
 | `valor_anual_tratamento` | Custo anual estimado do tratamento. |
 | `valor_causa_estimado` | Valor estimado da causa no cenário demonstrativo. |
-| `competencia_judsaude` | Justiça Federal ou Justiça Estadual, conforme simulação. |
+| `competencia_petsus` | Justiça Federal ou Justiça Estadual, conforme simulação. |
 | `reu_sugerido` | União, Estado ou Município, conforme simulação. |
 | `criterio_competencia` | Regra que justificou a competência simulada. |
 | `acima_210_salarios_minimos` | Indica se o custo anual alcança o parâmetro de 210 salários mínimos usado no Tema 1234 para medicamentos não incorporados. |
 
 ## Fontes funcionais
 
-- CNJ — Perguntas frequentes do JudSaúde: https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/conheca-o-conecta/judsaude/perguntas-frequentes/
-- CNJ — Lançamento nacional do JudSaúde: https://www.cnj.jus.br/ferramenta-publica-facilita-definicao-de-competencia-em-processos-na-saude/
+- CNJ — Referência sobre competência em processos de saúde: https://www.cnj.jus.br/ferramenta-publica-facilita-definicao-de-competencia-em-processos-na-saude/
 - Planalto — Salário mínimo de 2026 (R$ 1.621,00): https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12797.htm

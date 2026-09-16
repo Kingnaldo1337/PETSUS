@@ -5,6 +5,36 @@ import pandas as pd
 import streamlit as st
 
 
+FILTER_HELP = {
+    "sexo": "Restringe os resultados ao sexo informado no cadastro do paciente.",
+    "faixa_etaria": "Exibe somente pacientes das faixas etárias selecionadas.",
+    "condicao_clinica": "Filtra os processos pela condição clínica associada ao paciente.",
+    "sus_exclusivo": "Permite separar pacientes que dependem exclusivamente do SUS dos demais.",
+    "renda_familiar": "Restringe os resultados pela faixa de renda familiar cadastrada.",
+    "regiao": "Exibe somente registros das regiões brasileiras selecionadas.",
+    "uf": "Filtra os registros pelo estado (UF) relacionado ao processo.",
+    "municipio": "Exibe somente processos dos municípios selecionados.",
+    "natureza": "Separa os processos pela natureza da demanda, como medicamentos ou internações.",
+    "tipo_demanda": "Filtra pelo tipo específico de pedido feito no processo judicial.",
+    "item_demandado": "Localiza processos conforme o medicamento, procedimento, insumo ou serviço solicitado.",
+    "especialidade": "Restringe os resultados à especialidade médica relacionada à demanda.",
+    "esfera": "Filtra os processos pela esfera judicial responsável.",
+    "fase_processual": "Exibe processos que estão nas fases processuais selecionadas.",
+    "desfecho": "Filtra pelo resultado ou situação final registrada para o processo.",
+    "liminar": "Permite visualizar processos conforme a existência ou concessão de medida liminar.",
+    "urgente": "Separa as demandas classificadas como urgentes das não urgentes.",
+    "medicamento_dcb": "Filtra pelo princípio ativo do medicamento, usando a Denominação Comum Brasileira (DCB).",
+    "cid": "Restringe os registros pelo código da Classificação Internacional de Doenças (CID).",
+    "rename_incorporado": "Indica se o medicamento está incorporado à Relação Nacional de Medicamentos Essenciais (RENAME).",
+    "componente_sus": "Filtra pelo componente da assistência farmacêutica responsável pelo financiamento no SUS.",
+    "grupo_sus": "Restringe pelo grupo de financiamento ou fornecimento do medicamento no SUS.",
+    "pcdt_aplicavel": "Separa os casos conforme a existência de Protocolo Clínico e Diretriz Terapêutica aplicável.",
+    "pcdt_referencia": "Filtra pelo protocolo clínico ou diretriz terapêutica usado como referência.",
+    "competencia_petsus": "Exibe os casos conforme a competência judicial simulada: Justiça Federal ou Estadual.",
+    "reu_sugerido": "Filtra pelo ente público indicado na simulação como possível réu: União, Estado ou Município.",
+}
+
+
 def br_int(value: float | int) -> str:
     if pd.isna(value):
         return "0"
@@ -82,4 +112,9 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
 def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
     options = sorted([value for value in df[column].dropna().astype(str).unique().tolist() if value.strip()])
-    return st.multiselect(label, options, placeholder="Todos")
+    return st.multiselect(
+        label,
+        options,
+        placeholder="Todos",
+        help=FILTER_HELP.get(column, f"Filtra os resultados pelos valores selecionados em {label}."),
+    )
