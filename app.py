@@ -353,7 +353,7 @@ def extract_dcb(item: object) -> str:
 
 JUDICIAL_STAGES = (
     "Documentação preparada", "Processo protocolado", "Processo distribuído",
-    "Análise técnica / NAT-Jus", "Aguardando decisão", "Decisão sobre urgência",
+    "Análise técnica", "Aguardando decisão", "Decisão sobre urgência",
     "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
     "Recursos / trânsito em julgado / encerramento",
 )
