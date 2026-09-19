@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 MANAGER_PAGES = (
-    "Visão Geral", "Demandas", "Medicamentos", "Competência",
+    "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
     "Custos", "Geografia", "Pacientes", "Base de Dados",
 )
 USER_PAGE_MAP = {
     "Visão Geral": "Visão Geral",
+    "Andamento dos Processos": "Andamento",
     "Demandas": "Demandas",
     "Medicamentos": "Medicamentos",
     "Competência": "Competência",
@@ -16,6 +17,7 @@ USER_PAGE_MAP = {
 
 PAGE_SUBTITLES = {
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
+    "Andamento": "Andamento judicial e cumprimento na saúde acompanhados separadamente.",
     "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",
     "Medicamentos": "Incorporação à RENAME, DCB, componente SUS, PCDT, PMVG e esquema posológico.",
     "Competência": "Competência judicial, réu sugerido e critério de custo anual usados pelo PetSUS.",

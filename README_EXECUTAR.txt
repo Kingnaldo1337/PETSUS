@@ -65,6 +65,11 @@ ATUALIZAÇÃO - CAMPOS PETSUS
 Foram adicionadas duas novas telas ao dashboard:
 - Medicamentos: DCB, CID, incorporação à RENAME, componente/grupo SUS, PCDT, PMVG, apresentação e posologia.
 - Competência: competência judicial, réu sugerido, valor anual do tratamento, valor da causa e critério de 210 salários mínimos.
+- Andamento: duas trilhas independentes para o andamento judicial e o cumprimento material na rede de saúde.
+
+Na tela Andamento, o gestor acompanha todos os processos do recorte e o paciente visualiza somente os processos vinculados à sua conta. A tela diferencia decisão judicial, intimação, prazo de cumprimento, estoque/regulação, disponibilização e entrega ou realização do procedimento.
+
+Os eventos de andamento da base acadêmica são sintéticos e determinísticos. Em produção, devem ser atualizados por integração com o tribunal, secretaria de saúde, farmácia, unidade hospitalar ou operador autorizado.
 
 Novos filtros na barra lateral:
 - DCB / princípio ativo

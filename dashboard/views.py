@@ -12,6 +12,28 @@ from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, sect
 
 LIMITE_210_SM_2026 = 210 * 1621.0
 
+JUDICIAL_TRACK = (
+    "Documentação preparada", "Processo protocolado", "Processo distribuído",
+    "Análise técnica / NAT-Jus", "Aguardando decisão", "Decisão sobre urgência",
+    "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
+    "Recursos / encerramento",
+)
+
+
+def tracking_bar(title: str, stages, current: int, color: str) -> None:
+    items = []
+    for index, name in enumerate(stages, start=1):
+        state = "done" if index < current else "current" if index == current else "pending"
+        marker = "✓" if index < current else str(index)
+        items.append(
+            f'<div class="flow-step {state}" style="--track-color:{color}">'
+            f'<div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>'
+        )
+    st.markdown(
+        f'<div class="flow-title">{escape(title)}</div><div class="flow-track">' + "".join(items) + "</div>",
+        unsafe_allow_html=True,
+    )
+
 def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel):
     auth_state = st.session_state.get("auth_user", {})
     user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
@@ -90,6 +112,127 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                     with i4:
                         insight_card("Município destaque", cidade_maior["municipio"].iloc[0] if not cidade_maior.empty else "-", f"{br_int(cidade_maior['valor'].iloc[0])} processos" if not cidade_maior.empty else "Sem registros")
     
+    elif pagina == "Andamento":
+        st.markdown(
+            """
+            <style>
+            .flow-title { font-size:1.05rem; font-weight:900; color:#0B2459; margin:.7rem 0 .5rem; }
+            .flow-track { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.6rem; margin-bottom:1rem; }
+            .flow-step { min-width:0; padding:.65rem .4rem; border:1px solid #DDE6F2; border-radius:13px; background:#F8FAFD; text-align:center; }
+            .flow-marker { width:28px; height:28px; border-radius:50%; margin:0 auto .4rem; display:flex; align-items:center; justify-content:center; background:#E5EAF1; color:#667085; font-weight:900; }
+            .flow-label { font-size:.74rem; line-height:1.18; color:#667085; font-weight:750; overflow-wrap:anywhere; }
+            .flow-step.done { background:#ECFDF3; border-color:#A7E3BC; }
+            .flow-step.done .flow-marker { background:#239B56; color:white; }
+            .flow-step.current { background:#EEF5FF; border:2px solid var(--track-color); box-shadow:0 4px 12px rgba(18,92,201,.12); }
+            .flow-step.current .flow-marker { background:var(--track-color); color:white; }
+            .flow-step.current .flow-label { color:#0B2459; }
+            [data-testid="stMetricValue"],
+            [data-testid="stMetricValue"] > div,
+            [data-testid="stMetricValue"] * {
+                font-size: clamp(1.05rem, 1.65vw, 1.6rem) !important;
+                line-height: 1.15 !important;
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                overflow-wrap: anywhere !important;
+            }
+            @media(max-width:900px){.flow-track{grid-template-columns:repeat(2,minmax(0,1fr));}}
+            @media(max-width:520px){.flow-track{grid-template-columns:1fr;}}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.info(
+            "Esta demonstração separa o andamento no Judiciário do cumprimento material na saúde. "
+            "Uma decisão favorável não significa, por si só, que o medicamento foi entregue ou que a cirurgia foi realizada."
+        )
+
+        overdue_count = int((dff["indicador_atraso"] == "Sim").sum())
+        health_active = int((dff["etapa_saude_ordem"] > 0).sum())
+        continuous = int((dff["status_andamento"] == "Tratamento em cumprimento contínuo").sum())
+        cols = st.columns(4)
+        cards = [
+            ("Processos acompanhados", br_int(len(dff)), "processos no recorte", "📋", "icon-blue"),
+            ("Cumprimento iniciado", br_int(health_active), "ordens em execução na saúde", "⚕", "icon-green"),
+            ("Prazo vencido", br_int(overdue_count), "cumprimentos pendentes", "!", "icon-orange"),
+            ("Uso contínuo", br_int(continuous), "tratamentos com acompanhamento periódico", "↻", "icon-purple"),
+        ]
+        for col, card in zip(cols, cards):
+            with col:
+                metric_card(*card)
+
+        if user_role != "usuario":
+            a, b = st.columns(2)
+            with a:
+                with st.container(border=True):
+                    section_title("Etapas judiciais no recorte")
+                    judicial_summary = dff.groupby("etapa_judicial", as_index=False).size().rename(columns={"size": "processos"})
+                    judicial_summary["texto"] = judicial_summary["processos"].map(br_int)
+                    st.plotly_chart(barh(judicial_summary, "etapa_judicial", "processos", "texto", height=320), use_container_width=True, config={"displayModeBar": False})
+            with b:
+                with st.container(border=True):
+                    section_title("Cumprimento na rede de saúde")
+                    health_summary = dff.groupby("etapa_saude", as_index=False).size().rename(columns={"size": "processos"})
+                    health_summary["texto"] = health_summary["processos"].map(br_int)
+                    st.plotly_chart(barh(health_summary, "etapa_saude", "processos", "texto", height=320, color="#239B56"), use_container_width=True, config={"displayModeBar": False})
+
+        section_title("Consultar um processo")
+        process_rows = dff.sort_values("ultima_movimentacao_data", ascending=False).drop_duplicates("processo_id")
+        labels = {}
+        for row in process_rows.itertuples(index=False):
+            patient = f" · {row.paciente}" if user_role != "usuario" else ""
+            labels[f"{row.processo_id}{patient} · {row.item_demandado}"] = row.processo_id
+        selected_label = st.selectbox("Processo", list(labels), help="Selecione o processo que deseja acompanhar.")
+        process = process_rows[process_rows["processo_id"] == labels[selected_label]].iloc[0]
+
+        st.markdown(f"### {escape(str(process['item_demandado']))}")
+        st.caption(f"Processo {process['processo_id']} · Fluxo de {process['tipo_fluxo_saude']}")
+        if process["status_andamento"] == "Tratamento em cumprimento contínuo":
+            st.success("O medicamento foi entregue, mas o acompanhamento continua por se tratar de uso contínuo.")
+
+        j1, j2, j3 = st.columns(3)
+        j1.metric("Situação judicial", process["etapa_judicial"])
+        j2.metric("Cumprimento na saúde", process["etapa_saude"])
+        j3.metric("Status geral", process["status_andamento"])
+
+        st.progress(int(process["percentual_judicial"]), text=f"Andamento judicial: {int(process['percentual_judicial'])}%")
+        tracking_bar("Trilha A - andamento judicial", JUDICIAL_TRACK, int(process["etapa_judicial_ordem"]), "#125CC9")
+
+        health_tracks = {
+            "Medicamento": ("Ordem recebida", "Análise do cumprimento", "Estoque verificado", "Aquisição", "Produto recebido", "Disponível", "Paciente comunicado", "Medicamento entregue"),
+            "Cirurgia": ("Ordem recebida", "Regulação", "Hospital definido", "Pré-operatório", "Autorizada", "Agendada", "Paciente convocado", "Realizada", "Pós-operatório"),
+            "Tratamento ou serviço": ("Ordem recebida", "Análise", "Disponibilidade", "Providência administrativa", "Disponibilizado", "Paciente comunicado", "Realizado"),
+        }
+        health_track = health_tracks[process["tipo_fluxo_saude"]]
+        if int(process["etapa_saude_ordem"]) == 0:
+            st.warning("A trilha de cumprimento ainda não começou porque não há ordem favorável registrada.")
+        st.progress(int(process["percentual_saude"]), text=f"Cumprimento na saúde: {int(process['percentual_saude'])}%")
+        tracking_bar(f"Trilha B - cumprimento de {str(process['tipo_fluxo_saude']).lower()}", health_track, int(process["etapa_saude_ordem"]), "#239B56")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            with st.container(border=True):
+                section_title("Decisão e comunicação")
+                st.write(process["decisao_urgencia"])
+                if pd.notna(process["data_intimacao"]):
+                    st.caption(f"Intimação: {pd.to_datetime(process['data_intimacao']).strftime('%d/%m/%Y')}")
+        with c2:
+            with st.container(border=True):
+                section_title("Prazo para cumprimento")
+                if pd.notna(process["data_limite_cumprimento"]):
+                    st.markdown(f"**{pd.to_datetime(process['data_limite_cumprimento']).strftime('%d/%m/%Y')}**")
+                    st.caption(f"Prazo demonstrativo: {int(process['prazo_cumprimento_dias'])} dias")
+                else:
+                    st.write("Ainda não definido")
+        with c3:
+            with st.container(border=True):
+                section_title("Próxima ação")
+                st.write(process["proxima_etapa"])
+                st.caption(f"Responsável: {process['responsavel_etapa']}")
+
+        if user_role == "usuario":
+            st.info(process["mensagem_paciente"])
+
     elif pagina == "Demandas":
         cols = st.columns(5)
         demanda_principal = top_group(dff, "tipo_demanda", "processo_id", 1, "count")
@@ -322,7 +465,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
         intern_cost = dff[dff["natureza"] == "Internação"]["custo_estimado"].sum()
         cards = [
             ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo da base", "$", "icon-green"),
-            ("Ticket Médio", br_money(k["ticket"]), "média por processo", "🧾", "icon-blue"),
+            ("Ticket Médio", br_money(k["ticket"]), "custo total estimado ÷ número de processos", "🧾", "icon-blue"),
             ("Custo Medicamentos", br_money(med_cost), f"{br_float(pct(med_cost, k['custo']))}% do recorte", "💊", "icon-purple"),
             ("Custo Internações", br_money(intern_cost), f"{br_float(pct(intern_cost, k['custo']))}% do recorte", "🏥", "icon-orange"),
             ("Maior Processo", br_money(dff["custo_estimado"].max()), "maior valor individual", "📈", "icon-green"),
@@ -358,7 +501,7 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 st.plotly_chart(barh(esp_custo, "especialidade", "valor", "texto", height=350, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
         with e:
             with st.container(border=True):
-                section_title("Distribuição de ticket por natureza")
+                section_title("Custo médio por processo, por natureza")
                 sample = dff.copy()
                 if len(sample) > 3500:
                     sample = sample.sample(3500, random_state=42)
@@ -609,7 +752,10 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 "medicamento_dcb", "cid", "rename_incorporado", "componente_sus", "grupo_sus", "apresentacao_padronizada",
                 "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao", "duracao_meses", "pmvg_referencia",
                 "valor_anual_tratamento", "valor_causa_estimado", "competencia_petsus", "reu_sugerido", "criterio_competencia",
-                "acima_210_salarios_minimos", "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
+                "acima_210_salarios_minimos", "etapa_judicial", "percentual_judicial", "etapa_saude", "percentual_saude",
+                "status_andamento", "decisao_urgencia", "data_intimacao", "prazo_cumprimento_dias",
+                "data_limite_cumprimento", "indicador_atraso", "proxima_acao_judicial", "proxima_acao_saude",
+                "origem_informacao", "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
             ]
             table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
             table["data_ajuizamento"] = table["data_ajuizamento"].dt.strftime("%d/%m/%Y")
@@ -622,6 +768,13 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
                 "duracao_meses": "Duração (meses)", "pmvg_referencia": "PMVG Referência", "valor_anual_tratamento": "Valor Anual Tratamento",
                 "valor_causa_estimado": "Valor da Causa", "competencia_petsus": "Competência PetSUS", "reu_sugerido": "Réu Sugerido",
                 "criterio_competencia": "Critério de Competência", "acima_210_salarios_minimos": "≥ 210 SM",
+                "etapa_judicial": "Etapa Judicial", "percentual_judicial": "Andamento Judicial (%)",
+                "etapa_saude": "Cumprimento na Saúde", "percentual_saude": "Cumprimento na Saúde (%)",
+                "status_andamento": "Status do Acompanhamento", "decisao_urgencia": "Decisão de Urgência",
+                "data_intimacao": "Data da Intimação", "prazo_cumprimento_dias": "Prazo (dias)",
+                "data_limite_cumprimento": "Data Limite", "indicador_atraso": "Prazo Vencido",
+                "proxima_acao_judicial": "Próxima Ação Judicial", "proxima_acao_saude": "Próxima Ação na Saúde",
+                "origem_informacao": "Origem da Informação",
                 "esfera": "Esfera", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente",
                 "tempo_tramitacao_dias": "Tempo (dias)", "custo_estimado": "Custo Estimado"
             })

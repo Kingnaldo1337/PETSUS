@@ -142,6 +142,9 @@ st.markdown(
         .metric-card { background: #FFFFFF; border: 1px solid #E1E9F3; border-radius: 20px; padding: .9rem 1rem; height: 185px; min-height: 185px; max-width: 100%; box-sizing: border-box; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055); }
         .metric-wrap { display: block; min-width: 0; width: 100%; height: 100%; }
         .metric-head { display: flex; gap: .7rem; align-items: center; min-width: 0; margin-bottom: .65rem; }
+        .card-help { position: relative; margin-left: auto; width: 22px; height: 22px; min-width: 22px; border: 1.5px solid #125CC9; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #125CC9 !important; background: #FFFFFF; font-size: .78rem; font-weight: 900; line-height: 1; cursor: help; }
+        .card-help:hover::after, .card-help:focus::after { content: attr(data-help); position: absolute; z-index: 9999; top: calc(100% + 8px); right: 0; width: min(260px, 70vw); padding: .65rem .75rem; border-radius: 10px; background: #0B2459; color: #FFFFFF; font-size: .78rem; font-weight: 500; line-height: 1.35; text-align: left; white-space: normal; box-shadow: 0 8px 22px rgba(11,36,89,.22); }
+        .card-help:focus { outline: 2px solid #93C5FD; outline-offset: 2px; }
         .metric-icon { width: 58px; height: 58px; min-width: 58px; border-radius: 17px; display: flex; align-items: center; justify-content: center; color: white; font-size: 1.55rem; font-weight: 900; box-shadow: inset 0 -10px 20px rgba(0,0,0,.08); }
         .icon-blue { background: linear-gradient(135deg, #125CC9, #2682EA); }
         .icon-green { background: linear-gradient(135deg, #239B56, #4CCB75); }
@@ -161,7 +164,7 @@ st.markdown(
         .section-title { font-size: 1.13rem; font-weight: 900; color: #0B2459; margin-bottom: .36rem; }
         .small-note { font-size: .88rem; color: #667085; margin-top: .2rem; line-height: 1.35; }
         .insight-card { background: #FFFFFF; border: 1px solid #E1E9F3; border-radius: 18px; padding: .95rem; min-height: 145px; max-width: 100%; box-sizing: border-box; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045); }
-        .insight-title { font-size: .92rem; color: #31456F; font-weight: 800; margin-bottom: .35rem; }
+        .insight-title { display:flex; align-items:center; gap:.45rem; font-size: .92rem; color: #31456F; font-weight: 800; margin-bottom: .35rem; }
         .insight-value { font-size: 1.35rem; color: #0B2459; font-weight: 900; line-height: 1.15; margin-bottom: .35rem; }
         .insight-desc { font-size: .9rem; color: #667085; line-height: 1.35; }
         .patient-box { background: linear-gradient(135deg, #FFFFFF, #F7FBFF); border: 1px solid #DDE6F2; border-radius: 20px; padding: 1rem; box-shadow: 0 10px 24px rgba(15,23,42,.055); }
@@ -305,7 +308,10 @@ def _attach_full_cpf(base: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_data(path: Path, modified_at: int) -> pd.DataFrame:
+def load_data(path: Path, modified_at: int, schema_version: str) -> pd.DataFrame:
+    # schema_version participa da chave do cache. Ele deve mudar quando novas
+    # colunas calculadas forem adicionadas, mesmo que o Excel não seja alterado.
+    del schema_version
     try:
         base, invalid_dates = load_process_data(
             path, REQUIRED_COLUMNS, _attach_full_cpf, enrich_petsus_fields
@@ -343,6 +349,145 @@ def extract_dcb(item: object) -> str:
     txt = str(item).strip()
     txt = re.sub(r"\s+\d.*$", "", txt).strip()
     return txt or str(item).strip()
+
+
+JUDICIAL_STAGES = (
+    "Documentação preparada", "Processo protocolado", "Processo distribuído",
+    "Análise técnica / NAT-Jus", "Aguardando decisão", "Decisão sobre urgência",
+    "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
+    "Recursos / trânsito em julgado / encerramento",
+)
+
+MEDICINE_STAGES = (
+    "Ordem recebida", "Análise do cumprimento", "Estoque verificado",
+    "Aquisição, se necessária", "Produto recebido", "Disponível para dispensação",
+    "Paciente comunicado", "Medicamento entregue",
+)
+
+SURGERY_STAGES = (
+    "Ordem recebida", "Regulação", "Hospital definido", "Pré-operatório",
+    "Cirurgia autorizada", "Cirurgia agendada", "Paciente convocado",
+    "Cirurgia realizada", "Acompanhamento pós-operatório",
+)
+
+GENERAL_HEALTH_STAGES = (
+    "Ordem recebida", "Análise do cumprimento", "Regulação ou disponibilidade verificada",
+    "Providência administrativa", "Serviço ou item disponibilizado",
+    "Paciente comunicado", "Tratamento ou procedimento realizado",
+)
+
+
+def _judicial_stage(row) -> int:
+    fase = normalize_text(row.fase_processual)
+    desfecho = normalize_text(row.desfecho)
+    if any(term in fase or term in desfecho for term in ("arquiv", "encerr", "transit")):
+        return 10
+    if "recurso" in fase or "segunda instancia" in fase:
+        return 10
+    if desfecho not in ("", "nan", "em andamento", "pendente", "nao se aplica"):
+        return 9
+    if "cumprimento" in fase or "execu" in fase:
+        return 8
+    if str(row.liminar) == "Sim":
+        return 6 + stable_int(f"{row.processo_id}-pos-liminar", 3)
+    return 2 + stable_int(f"{row.processo_id}-judicial", 4)
+
+
+def enrich_process_tracking(base: pd.DataFrame) -> pd.DataFrame:
+    """Cria duas trilhas demonstrativas: processo judicial e cumprimento na saúde."""
+    d = base.copy()
+    today = pd.Timestamp.today().normalize()
+    tracking_rows = []
+    columns = [
+        "processo_id", "data_ajuizamento", "fase_processual", "desfecho",
+        "tempo_tramitacao_dias", "urgente", "liminar", "natureza", "tipo_demanda",
+    ]
+    for row in d[columns].itertuples():
+        judicial_order = _judicial_stage(row)
+        judicial_stage = JUDICIAL_STAGES[judicial_order - 1]
+        judicial_next = JUDICIAL_STAGES[judicial_order] if judicial_order < len(JUDICIAL_STAGES) else "Acompanhar trânsito em julgado e arquivamento"
+
+        demand = normalize_text(f"{row.natureza} {row.tipo_demanda}")
+        if "medicamento" in demand:
+            flow_type, health_stages = "Medicamento", MEDICINE_STAGES
+        elif any(term in demand for term in ("cirurgia", "cirurgico", "procedimento")):
+            flow_type, health_stages = "Cirurgia", SURGERY_STAGES
+        else:
+            flow_type, health_stages = "Tratamento ou serviço", GENERAL_HEALTH_STAGES
+
+        outcome = normalize_text(row.desfecho)
+        favorable_order = str(row.liminar) == "Sim" or any(term in outcome for term in ("procedente", "parcial"))
+        if favorable_order:
+            health_order = 1 + stable_int(f"{row.processo_id}-saude", len(health_stages))
+            if judicial_order >= 8:
+                health_order = max(health_order, min(4, len(health_stages)))
+            health_stage = health_stages[health_order - 1]
+            health_next = health_stages[health_order] if health_order < len(health_stages) else "Manter acompanhamento assistencial"
+        else:
+            health_order = 0
+            health_stage = "Aguardando ordem favorável"
+            health_next = "Iniciar cumprimento após decisão favorável"
+
+        decision = "Liminar concedida" if str(row.liminar) == "Sim" else "Aguardando decisão sobre pedido urgente"
+        deadline_days = stable_choice(f"{row.processo_id}-prazo", [5, 10, 15, 30]) if favorable_order else pd.NA
+        decision_date = pd.Timestamp(row.data_ajuizamento) + pd.Timedelta(days=stable_choice(f"{row.processo_id}-decisao", [2, 5, 10, 15])) if favorable_order else pd.NaT
+        notice_date = decision_date + pd.Timedelta(days=stable_choice(f"{row.processo_id}-intimacao", [1, 2, 3])) if favorable_order else pd.NaT
+        deadline_date = notice_date + pd.Timedelta(days=int(deadline_days)) if favorable_order else pd.NaT
+        health_complete = health_order == len(health_stages)
+        overdue = bool(favorable_order and pd.notna(deadline_date) and today > deadline_date and not health_complete)
+        elapsed_days = int(row.tempo_tramitacao_dias) if pd.notna(row.tempo_tramitacao_dias) else 0
+        last_date = min(
+            pd.Timestamp(row.data_ajuizamento) + pd.Timedelta(days=max(elapsed_days, 0)), today
+        )
+
+        if overdue:
+            status = "Prazo vencido - cumprimento pendente"
+        elif flow_type == "Medicamento" and health_complete:
+            status = "Tratamento em cumprimento contínuo"
+        elif health_order:
+            status = "Cumprimento na saúde em andamento"
+        elif str(row.urgente) == "Sim" and judicial_order < 6:
+            status = "Atenção prioritária"
+        elif judicial_order == 10:
+            status = "Andamento judicial encerrado"
+        else:
+            status = "Andamento judicial em curso"
+
+        patient_message = f"No Judiciário: {judicial_stage}. Na rede de saúde: {health_stage}."
+        tracking_rows.append({
+            "etapa_andamento": judicial_stage,
+            "etapa_ordem": judicial_order,
+            "status_andamento": status,
+            "etapa_judicial": judicial_stage,
+            "etapa_judicial_ordem": judicial_order,
+            "percentual_judicial": round(judicial_order / len(JUDICIAL_STAGES) * 100),
+            "etapa_saude": health_stage,
+            "etapa_saude_ordem": health_order,
+            "percentual_saude": round(health_order / len(health_stages) * 100) if health_order else 0,
+            "tipo_fluxo_saude": flow_type,
+            "decisao_urgencia": decision,
+            "data_decisao": decision_date,
+            "data_intimacao": notice_date,
+            "prazo_cumprimento_dias": deadline_days,
+            "data_limite_cumprimento": deadline_date,
+            "indicador_atraso": "Sim" if overdue else "Não",
+            "ultima_movimentacao_data": last_date,
+            "ultima_movimentacao": patient_message,
+            "proxima_etapa": health_next if health_order else judicial_next,
+            "responsavel_etapa": "Secretaria / ente responsável" if health_order else "Poder Judiciário",
+            "mensagem_paciente": patient_message,
+            "origem_informacao": "Simulação PetSUS",
+            "proxima_acao_judicial": judicial_next,
+            "proxima_acao_saude": health_next,
+            "encerramento_judicial": "Sim" if judicial_order == len(JUDICIAL_STAGES) else "Não",
+            "encerramento_assistencial": "Sim" if health_complete and flow_type != "Medicamento" else "Não",
+            "andamento_demonstrativo": "Sim",
+        })
+
+    tracking = pd.DataFrame(tracking_rows, index=d.index)
+    for column in tracking.columns:
+        d[column] = tracking[column]
+    return d
 
 
 def enrich_petsus_fields(base: pd.DataFrame) -> pd.DataFrame:
@@ -480,10 +625,15 @@ def enrich_petsus_fields(base: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["duracao_meses", "pmvg_referencia", "valor_anual_tratamento", "valor_causa_estimado"]:
         d[col] = pd.to_numeric(d[col], errors="coerce")
-    return d
+    return enrich_process_tracking(d)
 
 
-base_all = load_data(DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0)
+DATA_SCHEMA_VERSION = "dual-tracking-v1"
+base_all = load_data(
+    DATA_FILE,
+    DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
+    DATA_SCHEMA_VERSION,
+)
 auth_store = AuthStore(DATABASE_FILE)
 auth_user = render_auth_gate(auth_store, base_all)
 
@@ -580,6 +730,12 @@ with st.sidebar:
         liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
         urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
 
+    with st.expander("Filtros de andamento", expanded=False):
+        etapa_judicial_sel = multiselect_sidebar("Etapa judicial", base, "etapa_judicial")
+        etapa_saude_sel = multiselect_sidebar("Cumprimento na saúde", base, "etapa_saude")
+        status_andamento_sel = multiselect_sidebar("Status do acompanhamento", base, "status_andamento")
+        atraso_sel = multiselect_sidebar("Prazo vencido", base, "indicador_atraso")
+
     med_ref = base[base["medicamento_petsus"] == "Sim"]
     with st.expander("Filtros PetSUS", expanded=False):
         dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
@@ -634,7 +790,9 @@ active_filters = DashboardFilters(
         "item_demandado": tuple(item_sel), "especialidade": tuple(esp_sel),
         "esfera": tuple(esfera_sel), "fase_processual": tuple(fase_sel),
         "desfecho": tuple(desfecho_sel), "liminar": tuple(liminar_sel),
-        "urgente": tuple(urgente_sel), "medicamento_dcb": tuple(dcb_sel),
+        "urgente": tuple(urgente_sel), "etapa_judicial": tuple(etapa_judicial_sel),
+        "etapa_saude": tuple(etapa_saude_sel), "status_andamento": tuple(status_andamento_sel),
+        "indicador_atraso": tuple(atraso_sel), "medicamento_dcb": tuple(dcb_sel),
         "cid": tuple(cid_sel), "rename_incorporado": tuple(rename_sel),
         "componente_sus": tuple(componente_sel), "grupo_sus": tuple(grupo_sel),
         "pcdt_aplicavel": tuple(pcdt_sel), "pcdt_referencia": tuple(pcdt_ref_sel),

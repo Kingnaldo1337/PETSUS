@@ -23,6 +23,20 @@ Os campos abaixo compõem a análise de medicamentos do PetSUS. Como a base do p
 | `reu_sugerido` | União, Estado ou Município, conforme simulação. |
 | `criterio_competencia` | Regra que justificou a competência simulada. |
 | `acima_210_salarios_minimos` | Indica se o custo anual alcança o parâmetro de 210 salários mínimos usado no Tema 1234 para medicamentos não incorporados. |
+| `etapa_judicial` | Etapa atual da trilha judicial, independente do cumprimento material. |
+| `percentual_judicial` | Progresso demonstrativo da trilha judicial. |
+| `etapa_saude` | Etapa de cumprimento na rede de saúde para medicamento, cirurgia ou outro tratamento. |
+| `percentual_saude` | Progresso demonstrativo do cumprimento assistencial. |
+| `tipo_fluxo_saude` | Define se o fluxo operacional é de medicamento, cirurgia ou tratamento/serviço. |
+| `decisao_urgencia` | Situação demonstrativa da tutela de urgência ou liminar. |
+| `data_intimacao` | Data em que o responsável teria recebido formalmente a ordem. |
+| `prazo_cumprimento_dias` | Prazo demonstrativo fixado para cumprimento. |
+| `data_limite_cumprimento` | Data limite calculada a partir da intimação e do prazo. |
+| `indicador_atraso` | Indica prazo vencido com cumprimento ainda pendente. |
+| `mensagem_paciente` | Explicação simplificada e conjunta das duas trilhas. |
+| `origem_informacao` | Origem do evento; nesta base, identifica a simulação PetSUS. |
+| `encerramento_judicial` | Encerramento da trilha judicial, independente da assistência. |
+| `encerramento_assistencial` | Encerramento do fornecimento ou procedimento, independente do processo. |
 
 ## Fontes funcionais
 

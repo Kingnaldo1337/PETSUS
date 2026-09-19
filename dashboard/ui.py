@@ -5,6 +5,23 @@ import pandas as pd
 import streamlit as st
 
 
+CARD_HELP = {
+    "Processos acompanhados": "Quantidade de processos incluídos no recorte e nos filtros selecionados.",
+    "Cumprimento iniciado": "Processos em que uma ordem favorável já começou a ser executada pela rede de saúde.",
+    "Prazo vencido": "Processos em que o prazo calculado após a intimação terminou e o cumprimento ainda aparece como pendente.",
+    "Uso contínuo": "Tratamentos que precisam de entregas ou acompanhamento periódico e não terminam na primeira dispensação.",
+    "Total de Processos": "Quantidade total de processos judiciais incluídos no recorte selecionado.",
+    "Pacientes Ativos": "Quantidade de pacientes distintos com processos no recorte selecionado.",
+    "Custo Total": "Soma dos custos estimados dos processos exibidos.",
+    "Tempo Médio": "Média de dias de tramitação dos processos exibidos.",
+    "Taxa de Procedência": "Percentual de processos com resultado procedente ou parcialmente procedente.",
+    "Processos Urgentes": "Quantidade de processos classificados como urgentes.",
+    "Taxa de Liminares": "Percentual de processos que possuem decisão liminar registrada.",
+    "Ticket Médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
+    "Ticket médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
+}
+
+
 FILTER_HELP = {
     "sexo": "Restringe os resultados ao sexo informado no cadastro do paciente.",
     "faixa_etaria": "Exibe somente pacientes das faixas etárias selecionadas.",
@@ -23,6 +40,10 @@ FILTER_HELP = {
     "desfecho": "Filtra pelo resultado ou situação final registrada para o processo.",
     "liminar": "Permite visualizar processos conforme a existência ou concessão de medida liminar.",
     "urgente": "Separa as demandas classificadas como urgentes das não urgentes.",
+    "etapa_judicial": "Filtra pela etapa atual da trilha judicial do processo.",
+    "etapa_saude": "Filtra pela etapa de cumprimento do medicamento, cirurgia ou tratamento na rede de saúde.",
+    "status_andamento": "Separa processos em curso, prioritários, atrasados ou em cumprimento contínuo.",
+    "indicador_atraso": "Mostra casos cujo prazo de cumprimento já venceu.",
     "medicamento_dcb": "Filtra pelo princípio ativo do medicamento, usando a Denominação Comum Brasileira (DCB).",
     "cid": "Restringe os registros pelo código da Classificação Internacional de Doenças (CID).",
     "rename_incorporado": "Indica se o medicamento está incorporado à Relação Nacional de Medicamentos Essenciais (RENAME).",
@@ -77,12 +98,14 @@ def metric_card(label: str, value: str, subtitle: str, icon: str, icon_cls: str 
     longest_word = max((len(word) for word in value_text.split()), default=0)
     value_size_cls = " metric-value-long" if longest_word >= 9 else ""
     card_size_cls = " metric-card-long" if longest_word >= 9 else ""
+    help_text = CARD_HELP.get(str(label), f"{label}: {subtitle}")
     st.markdown(
         f"""
         <div class="metric-card{card_size_cls}"><div class="metric-wrap">
             <div class="metric-head">
                 <div class="metric-icon {escape(str(icon_cls), quote=True)}">{escape(str(icon))}</div>
                 <div class="metric-label">{escape(str(label))}</div>
+                <span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" data-help="{escape(help_text, quote=True)}">?</span>
             </div>
             <div class="metric-value{value_size_cls}">{escape(value_text)}</div>
             <div class="metric-sub">{escape(str(subtitle))}</div>
@@ -93,9 +116,10 @@ def metric_card(label: str, value: str, subtitle: str, icon: str, icon_cls: str 
 
 
 def insight_card(title: str, value: str, desc: str) -> None:
+    help_text = CARD_HELP.get(str(title), f"{title}: {desc}")
     st.markdown(
         f"""<div class="insight-card">
-            <div class="insight-title">{escape(str(title))}</div>
+            <div class="insight-title">{escape(str(title))}<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" data-help="{escape(help_text, quote=True)}">?</span></div>
             <div class="insight-value">{escape(str(value))}</div>
             <div class="insight-desc">{escape(str(desc))}</div>
         </div>""",
