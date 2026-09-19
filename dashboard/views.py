@@ -14,7 +14,7 @@ LIMITE_210_SM_2026 = 210 * 1621.0
 
 JUDICIAL_TRACK = (
     "Documentação preparada", "Processo protocolado", "Processo distribuído",
-    "Análise técnica / NAT-Jus", "Aguardando decisão", "Decisão sobre urgência",
+    "Análise técnica", "Aguardando decisão", "Decisão sobre urgência",
     "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
     "Recursos / encerramento",
 )
