@@ -628,7 +628,7 @@ def enrich_petsus_fields(base: pd.DataFrame) -> pd.DataFrame:
     return enrich_process_tracking(d)
 
 
-DATA_SCHEMA_VERSION = "dual-tracking-v1"
+DATA_SCHEMA_VERSION = "dual-tracking-v2-no-technical-brand"
 base_all = load_data(
     DATA_FILE,
     DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
