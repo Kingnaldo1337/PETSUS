@@ -21,6 +21,16 @@ JUDICIAL_TRACK = (
 
 
 def tracking_bar(title: str, stages, current: int, color: str) -> None:
+    if title.startswith("Trilha A"):
+        help_text = (
+            "A Trilha A mostra o andamento do processo dentro do Judiciário, desde a preparação "
+            "dos documentos até sentença, recursos e encerramento."
+        )
+    else:
+        help_text = (
+            "A Trilha B mostra o cumprimento prático da decisão pela rede de saúde, como estoque, "
+            "aquisição e entrega de medicamento ou regulação e realização de cirurgia."
+        )
     items = []
     for index, name in enumerate(stages, start=1):
         state = "done" if index < current else "current" if index == current else "pending"
@@ -30,7 +40,10 @@ def tracking_bar(title: str, stages, current: int, color: str) -> None:
             f'<div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>'
         )
     st.markdown(
-        f'<div class="flow-title">{escape(title)}</div><div class="flow-track">' + "".join(items) + "</div>",
+        f'<div class="flow-title">{escape(title)}'
+        f'<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" '
+        f'data-help="{escape(help_text, quote=True)}">?</span></div>'
+        f'<div class="flow-track">' + "".join(items) + "</div>",
         unsafe_allow_html=True,
     )
 
@@ -116,7 +129,8 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
         st.markdown(
             """
             <style>
-            .flow-title { font-size:1.05rem; font-weight:900; color:#0B2459; margin:.7rem 0 .5rem; }
+            .flow-title { display:flex; align-items:center; gap:.5rem; font-size:1.05rem; font-weight:900; color:#0B2459; margin:.7rem 0 .5rem; }
+            .flow-title .card-help { margin-left:0; }
             .flow-track { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.6rem; margin-bottom:1rem; }
             .flow-step { min-width:0; padding:.65rem .4rem; border:1px solid #DDE6F2; border-radius:13px; background:#F8FAFD; text-align:center; }
             .flow-marker { width:28px; height:28px; border-radius:50%; margin:0 auto .4rem; display:flex; align-items:center; justify-content:center; background:#E5EAF1; color:#667085; font-weight:900; }
