@@ -23,7 +23,8 @@ def otp_digest(code: str, salt: str) -> str:
 
 
 def new_registration_challenge(
-    cpf: str, email: str, password_hash: str, patient_id: str, name: str
+    cpf: str, email: str, password_hash: str, patient_id: str, name: str,
+    birth_date: str | None = None,
 ) -> tuple[dict[str, object], str]:
     code = f"{secrets.randbelow(1_000_000):06d}"
     salt = secrets.token_hex(16)
@@ -33,10 +34,10 @@ def new_registration_challenge(
         "password_hash": password_hash,
         "patient_id": patient_id,
         "name": name,
+        "birth_date": birth_date or "",
         "code_salt": salt,
         "code_digest": otp_digest(code, salt),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
         "attempts": 0,
     }
     return challenge, code
-

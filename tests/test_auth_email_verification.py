@@ -45,3 +45,22 @@ def test_database_migration_adds_email_and_enforces_uniqueness(tmp_path):
         assert "e-mail" in str(exc)
     else:
         raise AssertionError("E-mail duplicado deveria ser rejeitado")
+
+
+def test_password_recovery_requires_cpf_email_and_birth_date(tmp_path):
+    store = AuthStore(tmp_path / "users.db")
+    user = store.create_user(
+        "12345678900", "senha-antiga", "Paciente", "usuario", "PAC1",
+        "paciente@example.com", "1990-05-20",
+    )
+
+    assert store.find_password_reset_account(
+        "123.456.789-00", "PACIENTE@example.com", "1990-05-20"
+    ) == (user.id, "paciente@example.com")
+    assert store.find_password_reset_account(
+        "12345678900", "paciente@example.com", "1991-05-20"
+    ) is None
+
+    store.update_password(user.id, "senha-nova-segura")
+    assert store.authenticate("12345678900", "senha-nova-segura") is not None
+    assert store.authenticate("12345678900", "senha-antiga") is None

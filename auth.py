@@ -7,7 +7,7 @@ import re
 import secrets
 import smtplib
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -33,9 +33,24 @@ def _otp_digest(code: str, salt: str) -> str:
 
 
 def _new_registration_challenge(
-    cpf: str, email: str, password_hash: str, patient_id: str, name: str
+    cpf: str, email: str, password_hash: str, patient_id: str, name: str,
+    birth_date: str | None = None,
 ) -> tuple[dict[str, object], str]:
-    return new_registration_challenge(cpf, email, password_hash, patient_id, name)
+    return new_registration_challenge(cpf, email, password_hash, patient_id, name, birth_date)
+
+
+def _new_password_reset_challenge(user_id: int, email: str) -> tuple[dict[str, object], str]:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    salt = secrets.token_hex(16)
+    challenge: dict[str, object] = {
+        "user_id": int(user_id),
+        "email": normalize_email(email),
+        "code_salt": salt,
+        "code_digest": _otp_digest(code, salt),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+        "attempts": 0,
+    }
+    return challenge, code
 
 
 class AuthStore:
@@ -87,6 +102,8 @@ class AuthStore:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
             if "email" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            if "birth_date_lookup" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN birth_date_lookup TEXT")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique "
                 "ON users(email) WHERE email IS NOT NULL"
@@ -113,6 +130,11 @@ class AuthStore:
     def _lookup_key(self, cpf: str) -> str:
         normalized = self.normalize_cpf(cpf)
         return hmac.new(self._pepper, normalized.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def _birth_date_key(self, birth_date: str) -> str:
+        return hmac.new(
+            self._pepper, f"birth-date:{birth_date}".encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
     @staticmethod
     def _hash_password(password: str) -> str:
@@ -153,6 +175,7 @@ class AuthStore:
         role: str,
         patient_id: str | None = None,
         email: str | None = None,
+        birth_date: str | None = None,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         if len(normalized) != 11:
@@ -160,7 +183,7 @@ class AuthStore:
         if len(password) < 8:
             raise ValueError("A senha deve ter pelo menos 8 caracteres.")
         return self.create_user_with_password_hash(
-            normalized, self._hash_password(password), name, role, patient_id, email
+            normalized, self._hash_password(password), name, role, patient_id, email, birth_date
         )
 
     def create_user_with_password_hash(
@@ -171,9 +194,11 @@ class AuthStore:
         role: str,
         patient_id: str | None = None,
         email: str | None = None,
+        birth_date: str | None = None,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         normalized_email = normalize_email(email or "") or None
+        normalized_birth_date = (birth_date or "").strip()
         if len(normalized) != 11:
             raise ValueError("Informe um CPF com 11 dígitos.")
         if not password_hash.startswith("scrypt$"):
@@ -191,8 +216,8 @@ class AuthStore:
             with self._connect() as conn:
                 cursor = conn.execute(
                     """
-                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, birth_date_lookup, active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
                         self._lookup_key(normalized),
@@ -202,6 +227,7 @@ class AuthStore:
                         patient_id,
                         name.strip() or "Usuário",
                         normalized_email,
+                        self._birth_date_key(normalized_birth_date) if normalized_birth_date else None,
                         datetime.now(timezone.utc).isoformat(),
                     ),
                 )
@@ -216,6 +242,40 @@ class AuthStore:
             raise ValueError("Este CPF já possui uma conta cadastrada.") from exc
         return self._row_to_user(row)
 
+    def find_password_reset_account(
+        self, cpf: str, email: str, birth_date: str
+    ) -> tuple[int, str] | None:
+        normalized_cpf = self.normalize_cpf(cpf)
+        normalized_email = normalize_email(email)
+        if len(normalized_cpf) != 11 or not is_valid_email(normalized_email) or not birth_date:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, email, birth_date_lookup FROM users
+                WHERE cpf_lookup = ? AND email = ? AND active = 1
+                """,
+                (self._lookup_key(normalized_cpf), normalized_email),
+            ).fetchone()
+        if row is None or not row["birth_date_lookup"]:
+            return None
+        if not hmac.compare_digest(str(row["birth_date_lookup"]), self._birth_date_key(birth_date)):
+            return None
+        return int(row["id"]), str(row["email"])
+
+    def update_password(self, user_id: int, new_password: str) -> None:
+        if len(new_password) < 8:
+            raise ValueError("A senha deve ter pelo menos 8 caracteres.")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ? AND active = 1",
+                (self._hash_password(new_password), int(user_id)),
+            )
+            updated_rows = cursor.rowcount
+            cursor.close()
+        if updated_rows != 1:
+            raise ValueError("Não foi possível atualizar a senha.")
+
     def has_manager(self) -> bool:
         with self._connect() as conn:
             row = conn.execute("SELECT 1 FROM users WHERE role = 'gestor' AND active = 1 LIMIT 1").fetchone()
@@ -227,9 +287,10 @@ class AuthStore:
         cpf = os.getenv("PETSUS_GESTOR_CPF", "").strip()
         password = os.getenv("PETSUS_GESTOR_SENHA", "").strip()
         name = os.getenv("PETSUS_GESTOR_NOME", "Gestor").strip() or "Gestor"
+        birth_date = os.getenv("PETSUS_GESTOR_DATA_NASCIMENTO", "").strip() or None
         if cpf and password:
             try:
-                self.create_user(cpf, password, name, ROLE_MANAGER)
+                self.create_user(cpf, password, name, ROLE_MANAGER, birth_date=birth_date)
             except ValueError:
                 pass
 
@@ -321,6 +382,8 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
             overflow-wrap: break-word;
             white-space: normal;
         }
+        .forgot-password-link { display:inline-block; color:#125CC9 !important; font-size:.92rem; font-weight:650; text-decoration:none; margin:.05rem 0 .45rem; }
+        .forgot-password-link:hover, .forgot-password-link:focus { color:#0B4B93 !important; text-decoration:underline; }
         @media (max-width: 640px) {
             .auth-wrap { margin-top: 1rem; padding-inline: .25rem; }
             .auth-title { font-size: 1.65rem; line-height: 1.15; }
@@ -344,6 +407,10 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
             with st.form("login_form", clear_on_submit=False):
                 cpf = st.text_input("CPF", placeholder="000.000.000-00", autocomplete="username")
                 password = st.text_input("Senha", type="password", autocomplete="current-password")
+                st.markdown(
+                    '<a class="forgot-password-link" href="?recover=1">Esqueceu sua senha?</a>',
+                    unsafe_allow_html=True,
+                )
                 submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
             if submitted:
                 user = store.authenticate(cpf, password)
@@ -370,6 +437,14 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                         autocomplete="email",
                         help="Enviaremos um código de verificação para este endereço.",
                     )
+                    reg_birth_date = st.date_input(
+                        "Data de nascimento",
+                        value=None,
+                        min_value=date(1900, 1, 1),
+                        max_value=date.today(),
+                        format="DD/MM/YYYY",
+                        help="Será usada, junto com CPF e e-mail, em uma futura recuperação de senha.",
+                    )
                     reg_password = st.text_input("Crie uma senha", type="password", help="Mínimo de 8 caracteres.")
                     reg_submit = st.form_submit_button("Enviar código", use_container_width=True, type="primary")
                 if reg_submit:
@@ -379,6 +454,8 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                         st.error(error)
                     elif not is_valid_email(normalized_email):
                         st.error("Informe um e-mail válido.")
+                    elif reg_birth_date is None:
+                        st.error("Informe a data de nascimento.")
                     elif len(reg_password) < 8:
                         st.error("A senha deve ter pelo menos 8 caracteres.")
                     else:
@@ -388,6 +465,7 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                             store._hash_password(reg_password),
                             resolved_patient_id or "",
                             name or resolved_patient_id or "Usuário",
+                            reg_birth_date.isoformat(),
                         )
                         try:
                             send_verification_code(normalized_email, code)
@@ -435,6 +513,7 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                                 ROLE_USER,
                                 str(pending["patient_id"]),
                                 str(pending["email"]),
+                                str(pending["birth_date"]),
                             )
                         except ValueError as exc:
                             st.error(str(exc))
@@ -445,6 +524,117 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                 if st.button("Alterar dados ou solicitar outro código", use_container_width=True):
                     st.session_state.pop("registration_challenge", None)
                     st.rerun()
+
+        @st.dialog("Recuperar senha")
+        def recovery_dialog() -> None:
+            st.caption(
+                "Confirme CPF, e-mail e data de nascimento. Depois enviaremos um código para o e-mail cadastrado."
+            )
+            reset_pending = st.session_state.get("password_reset_challenge")
+            if not isinstance(reset_pending, dict):
+                with st.form("password_recovery_form", clear_on_submit=False):
+                    reset_cpf = st.text_input(
+                        "CPF",
+                        placeholder="000.000.000-00",
+                        key="reset_cpf",
+                        autocomplete="username",
+                    )
+                    reset_email = st.text_input(
+                        "E-mail cadastrado",
+                        placeholder="paciente@exemplo.com",
+                        key="reset_email",
+                        autocomplete="email",
+                    )
+                    reset_birth_date = st.date_input(
+                        "Data de nascimento",
+                        value=None,
+                        min_value=date(1900, 1, 1),
+                        max_value=date.today(),
+                        format="DD/MM/YYYY",
+                        key="reset_birth_date",
+                    )
+                    reset_submit = st.form_submit_button(
+                        "Confirmar identidade", use_container_width=True, type="primary"
+                    )
+
+                if reset_submit:
+                    birth_date_text = reset_birth_date.isoformat() if reset_birth_date else ""
+                    account = store.find_password_reset_account(
+                        reset_cpf, reset_email, birth_date_text
+                    )
+                    if account is None:
+                        st.error(
+                            "Os dados informados não conferem com uma conta habilitada para recuperação. "
+                            "Contas antigas podem precisar de atualização pela administração."
+                        )
+                    else:
+                        user_id, destination = account
+                        challenge, code = _new_password_reset_challenge(user_id, destination)
+                        try:
+                            send_verification_code(destination, code)
+                        except (OSError, smtplib.SMTPException, RuntimeError) as exc:
+                            st.error(f"Não foi possível enviar o código. {exc}")
+                        else:
+                            st.session_state["password_reset_challenge"] = challenge
+                            st.rerun(scope="fragment")
+            else:
+                st.info(f"Enviamos um código de 6 dígitos para {reset_pending['email']}.")
+                with st.form("password_reset_confirmation_form", clear_on_submit=False):
+                    reset_code = st.text_input(
+                        "Código de verificação",
+                        max_chars=6,
+                        placeholder="000000",
+                        autocomplete="one-time-code",
+                    )
+                    new_password = st.text_input(
+                        "Nova senha", type="password", autocomplete="new-password",
+                        help="Use pelo menos 8 caracteres.",
+                    )
+                    confirm_password = st.text_input(
+                        "Confirmar nova senha", type="password", autocomplete="new-password"
+                    )
+                    change_submit = st.form_submit_button(
+                        "Alterar senha", use_container_width=True, type="primary"
+                    )
+
+                if change_submit:
+                    expires_at = datetime.fromisoformat(str(reset_pending["expires_at"]))
+                    supplied_digest = _otp_digest(reset_code.strip(), str(reset_pending["code_salt"]))
+                    code_is_valid = (
+                        len(reset_code.strip()) == 6
+                        and reset_code.strip().isdigit()
+                        and datetime.now(timezone.utc) <= expires_at
+                        and hmac.compare_digest(supplied_digest, str(reset_pending["code_digest"]))
+                    )
+                    if not code_is_valid:
+                        reset_pending["attempts"] = int(reset_pending.get("attempts", 0)) + 1
+                        if int(reset_pending["attempts"]) >= OTP_MAX_ATTEMPTS:
+                            st.session_state.pop("password_reset_challenge", None)
+                            st.error("Limite de tentativas atingido. Inicie a recuperação novamente.")
+                        elif datetime.now(timezone.utc) > expires_at:
+                            st.error("Código expirado. Inicie a recuperação novamente.")
+                        else:
+                            st.error("Código de verificação inválido.")
+                    elif len(new_password) < 8:
+                        st.error("A nova senha deve ter pelo menos 8 caracteres.")
+                    elif new_password != confirm_password:
+                        st.error("A confirmação da senha não corresponde à nova senha.")
+                    else:
+                        try:
+                            store.update_password(int(reset_pending["user_id"]), new_password)
+                        except ValueError as exc:
+                            st.error(str(exc))
+                        else:
+                            st.session_state.pop("password_reset_challenge", None)
+                            st.success("Senha alterada com sucesso. Você já pode entrar com a nova senha.")
+
+                if st.button("Cancelar e começar novamente", use_container_width=True):
+                    st.session_state.pop("password_reset_challenge", None)
+                    st.query_params.pop("recover", None)
+                    st.rerun()
+
+        if st.query_params.get("recover") == "1":
+            recovery_dialog()
 
         if not store.has_manager():
             st.warning(

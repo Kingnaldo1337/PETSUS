@@ -133,6 +133,11 @@ Também é possível provisionar o primeiro gestor por variáveis de ambiente:
 - PETSUS_GESTOR_CPF
 - PETSUS_GESTOR_SENHA
 - PETSUS_GESTOR_NOME (opcional)
+- PETSUS_GESTOR_DATA_NASCIMENTO (opcional, formato AAAA-MM-DD; necessário para recuperação automática da senha do gestor)
+
+RECUPERAÇÃO DE SENHA
+
+Na tela de autenticação, use a aba "Recuperar senha". O sistema confirma CPF, e-mail cadastrado e data de nascimento, envia um código de seis dígitos ao e-mail e permite definir uma nova senha. A data de nascimento é armazenada como hash. Contas criadas antes desta funcionalidade precisam ter essa informação atualizada antes de usar a recuperação automática.
 
 Cadastro de usuário comum:
 - O cadastro de usuário comum pede apenas CPF e senha. O CPF precisa existir na base carregada pelo sistema; o paciente_id é identificado automaticamente.
