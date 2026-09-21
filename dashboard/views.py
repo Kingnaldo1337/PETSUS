@@ -9,6 +9,7 @@ import streamlit as st
 
 from .charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
 from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, section_title, to_excel_bytes
+from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
 
@@ -246,6 +247,20 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
 
         if user_role == "usuario":
             st.info(process["mensagem_paciente"])
+
+        pdf_data = build_process_tracking_pdf(
+            process.to_dict(),
+            JUDICIAL_TRACK,
+            health_track,
+        )
+        st.download_button(
+            "Baixar consulta em PDF",
+            data=pdf_data,
+            file_name=f"andamento_{process['processo_id']}.pdf",
+            mime="application/pdf",
+            help="Baixa um relatório com o resumo e as etapas do processo selecionado.",
+            type="primary",
+        )
 
     elif pagina == "Demandas":
         cols = st.columns(5)
