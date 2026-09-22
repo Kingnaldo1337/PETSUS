@@ -1,6 +1,7 @@
 import pandas as pd
 
 from dashboard.charts import barh, chart_layout, donut
+from petsus.dashboard.navigation import navigation_for
 
 
 def test_chart_layout_keeps_layout_responsive():
@@ -32,3 +33,11 @@ def test_donut_legend_does_not_consume_horizontal_space():
     assert fig.layout.legend.orientation == "h"
     assert fig.layout.legend.xanchor == "center"
     assert fig.layout.margin.b >= 50
+
+
+def test_internal_management_is_available_only_to_managers():
+    manager_pages, _ = navigation_for(True)
+    user_pages, _ = navigation_for(False)
+
+    assert "Gestão interna" in manager_pages
+    assert "Gestão interna" not in user_pages

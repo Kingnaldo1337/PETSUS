@@ -814,6 +814,7 @@ participacao = pct(len(dff), base_total)
 part_custo = pct(k["custo"], base_cost_total)
 render_dashboard_page(
     pagina, dff, base, k, participacao, part_custo, paciente_ids_sel,
+    auth_store=auth_store,
 )
 
 st.markdown(

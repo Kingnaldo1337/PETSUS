@@ -2,7 +2,7 @@ from __future__ import annotations
 
 MANAGER_PAGES = (
     "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
-    "Custos", "Geografia", "Pacientes", "Base de Dados",
+    "Custos", "Geografia", "Pacientes", "Base de Dados", "Gestão interna",
 )
 USER_PAGE_MAP = {
     "Visão Geral": "Visão Geral",
@@ -25,6 +25,7 @@ PAGE_SUBTITLES = {
     "Geografia": "Distribuição por região, UF e município.",
     "Pacientes": "Perfil dos pacientes e busca individual.",
     "Base de Dados": "Tabela detalhada, exportação e conferência dos registros filtrados.",
+    "Gestão interna": "Cadastro de gestores e manutenção individual de contas por CPF.",
 }
 
 

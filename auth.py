@@ -276,6 +276,76 @@ class AuthStore:
         if updated_rows != 1:
             raise ValueError("Não foi possível atualizar a senha.")
 
+    def find_account_by_cpf(self, cpf: str) -> dict[str, object] | None:
+        """Consulta uma única conta pelo CPF, sem expor dados de autenticação."""
+        normalized = self.normalize_cpf(cpf)
+        if len(normalized) != 11:
+            raise ValueError("Informe um CPF com 11 dígitos.")
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, cpf_display, role, patient_id, name, email,
+                       birth_date_lookup IS NOT NULL AS has_birth_date, active
+                FROM users
+                WHERE cpf_lookup = ?
+                LIMIT 1
+                """,
+                (self._lookup_key(normalized),),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def update_account_by_manager(
+        self,
+        user_id: int,
+        expected_role: str,
+        *,
+        email: str | None = None,
+        new_password: str | None = None,
+        birth_date: str | None = None,
+    ) -> None:
+        """Atualiza somente os campos administrativos permitidos para uma conta."""
+        if expected_role not in {ROLE_USER, ROLE_MANAGER}:
+            raise ValueError("Perfil de acesso inválido.")
+
+        updates: list[str] = []
+        values: list[object] = []
+        if email is not None:
+            normalized_email = normalize_email(email)
+            if not is_valid_email(normalized_email):
+                raise ValueError("Informe um e-mail válido.")
+            updates.append("email = ?")
+            values.append(normalized_email)
+        if new_password:
+            if len(new_password) < 8:
+                raise ValueError("A senha deve ter pelo menos 8 caracteres.")
+            updates.append("password_hash = ?")
+            values.append(self._hash_password(new_password))
+        if birth_date is not None:
+            try:
+                date.fromisoformat(birth_date)
+            except ValueError as exc:
+                raise ValueError("Informe uma data de nascimento válida.") from exc
+            updates.append("birth_date_lookup = ?")
+            values.append(self._birth_date_key(birth_date))
+
+        if not updates:
+            raise ValueError("Nenhuma alteração foi informada.")
+        values.extend((int(user_id), expected_role))
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    f"UPDATE users SET {', '.join(updates)} WHERE id = ? AND role = ? AND active = 1",
+                    values,
+                )
+                updated_rows = cursor.rowcount
+                cursor.close()
+        except sqlite3.IntegrityError as exc:
+            if "email" in str(exc).lower():
+                raise ValueError("Este e-mail já possui uma conta cadastrada.") from exc
+            raise ValueError("Não foi possível atualizar a conta.") from exc
+        if updated_rows != 1:
+            raise ValueError("Conta ativa não encontrada para o perfil informado.")
+
     def has_manager(self) -> bool:
         with self._connect() as conn:
             row = conn.execute("SELECT 1 FROM users WHERE role = 'gestor' AND active = 1 LIMIT 1").fetchone()

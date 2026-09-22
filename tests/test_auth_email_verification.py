@@ -64,3 +64,48 @@ def test_password_recovery_requires_cpf_email_and_birth_date(tmp_path):
     store.update_password(user.id, "senha-nova-segura")
     assert store.authenticate("12345678900", "senha-nova-segura") is not None
     assert store.authenticate("12345678900", "senha-antiga") is None
+
+
+def test_manager_can_find_and_update_one_account_by_cpf(tmp_path):
+    store = AuthStore(tmp_path / "users.db")
+    patient = store.create_user(
+        "12345678900", "senha-antiga", "Paciente", "usuario", "PAC1",
+        "paciente@example.com", "1990-05-20",
+    )
+
+    account = store.find_account_by_cpf("123.456.789-00")
+    assert account is not None
+    assert account["id"] == patient.id
+    assert account["role"] == "usuario"
+    assert "password_hash" not in account
+    assert "birth_date_lookup" not in account
+
+    store.update_account_by_manager(
+        patient.id,
+        "usuario",
+        email="novo@example.com",
+        new_password="senha-nova-segura",
+        birth_date="1992-07-15",
+    )
+
+    assert store.authenticate("12345678900", "senha-nova-segura") is not None
+    assert store.find_password_reset_account(
+        "12345678900", "novo@example.com", "1992-07-15"
+    ) == (patient.id, "novo@example.com")
+
+
+def test_manager_update_cannot_change_an_account_using_wrong_role(tmp_path):
+    store = AuthStore(tmp_path / "users.db")
+    patient = store.create_user(
+        "12345678900", "senha-antiga", "Paciente", "usuario", "PAC1",
+        "paciente@example.com", "1990-05-20",
+    )
+
+    try:
+        store.update_account_by_manager(
+            patient.id, "gestor", email="indevido@example.com"
+        )
+    except ValueError as exc:
+        assert "não encontrada" in str(exc)
+    else:
+        raise AssertionError("A atualização com um perfil incorreto deveria ser rejeitada")

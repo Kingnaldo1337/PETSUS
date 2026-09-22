@@ -48,14 +48,25 @@ def tracking_bar(title: str, stages, current: int, color: str) -> None:
         unsafe_allow_html=True,
     )
 
-def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel):
+def render_pages(
+    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_store=None
+):
     auth_state = st.session_state.get("auth_user", {})
     user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
     
     # -----------------------------------------------------------------------------
     # Páginas
     # -----------------------------------------------------------------------------
-    if pagina == "Visão Geral":
+    if pagina == "Gestão interna":
+        manager_session = isinstance(auth_state, dict) and auth_state.get("role") == "gestor"
+        if not manager_session or auth_store is None:
+            st.error("Esta página é restrita a gestores.")
+            return
+        from petsus.dashboard.internal_management import render_internal_management
+
+        render_internal_management(auth_store)
+
+    elif pagina == "Visão Geral":
         cards = [
             ("Total de Processos", br_int(k["total"]), f"{br_float(participacao)}% da base total", "📄", "icon-blue"),
             ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo total", "$", "icon-green"),
