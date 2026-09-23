@@ -6,3 +6,5 @@ usuarios.db
 usuarios.db-*
 usuarios.secret
 .streamlit/secrets.toml
+.env
+backups/

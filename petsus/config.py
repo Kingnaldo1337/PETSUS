@@ -1,8 +1,13 @@
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_FILE = PROJECT_ROOT / "dados_dashboard_saude.xlsx"
-DATABASE_FILE = PROJECT_ROOT / "usuarios.db"
+DATA_FILE = Path(
+    os.getenv("PETSUS_DATA_FILE", str(PROJECT_ROOT / "dados_dashboard_saude.xlsx"))
+).expanduser()
+DATABASE_FILE = Path(
+    os.getenv("PETSUS_DATABASE_FILE", str(PROJECT_ROOT / "usuarios.db"))
+).expanduser()
 
 REQUIRED_COLUMNS = {
     "processo_id", "data_ajuizamento", "paciente_id", "paciente",
