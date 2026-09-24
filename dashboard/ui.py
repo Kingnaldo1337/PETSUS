@@ -139,6 +139,7 @@ def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
     return st.multiselect(
         label,
         options,
+        key=f"filter_{column}",
         placeholder="Todos",
         help=FILTER_HELP.get(column, f"Filtra os resultados pelos valores selecionados em {label}."),
     )

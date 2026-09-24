@@ -1,11 +1,5 @@
 DASHBOARD DE JUDICIALIZAÇÃO NA SAÚDE
 
-IMPLANTAÇÃO EM SERVIDOR COM DOCKER
-
-Os arquivos Dockerfile, compose.yaml e Caddyfile preparam a aplicação para um
-servidor com HTTPS e banco SQLite persistente. As instruções completas de domínio,
-variáveis, atualização, backup e restauração estão em DEPLOY_DOCKER.md.
-
 Como executar no Windows:
 
 1) Abra o PowerShell ou CMD dentro desta pasta.
