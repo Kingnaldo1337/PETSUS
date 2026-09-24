@@ -454,6 +454,11 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         }
         .forgot-password-link { display:inline-block; color:#125CC9 !important; font-size:.92rem; font-weight:650; text-decoration:none; margin:.05rem 0 .45rem; }
         .forgot-password-link:hover, .forgot-password-link:focus { color:#0B4B93 !important; text-decoration:underline; }
+        .auth-support { width:min(100%, 620px); margin:1.15rem auto .25rem; padding:.85rem 1rem; border-top:1px solid #DDE6F2; color:#667085; font-size:.88rem; line-height:1.55; text-align:center; }
+        .auth-support-title { color:#0B2459; font-weight:800; margin-bottom:.15rem; }
+        .auth-support a { color:#125CC9 !important; font-weight:700; text-decoration:none; white-space:nowrap; }
+        .auth-support a:hover, .auth-support a:focus { color:#0B4B93 !important; text-decoration:underline; }
+        .auth-support-separator { color:#98A2B3; padding:0 .4rem; }
         @media (max-width: 640px) {
             .auth-wrap { margin-top: 1rem; padding-inline: .25rem; }
             .auth-title { font-size: 1.65rem; line-height: 1.15; }
@@ -711,6 +716,19 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                 "Ainda não existe conta de gestor. Crie a primeira conta pelo script `criar_gestor.py` "
                 "ou configure PETSUS_GESTOR_CPF e PETSUS_GESTOR_SENHA no ambiente."
             )
+
+    st.markdown(
+        """
+        <footer class="auth-support">
+            <div class="auth-support-title">Precisa de ajuda? Fale com o suporte</div>
+            <a href="https://wa.me/5584998344139" target="_blank" rel="noopener noreferrer"
+               aria-label="Abrir conversa com o suporte no WhatsApp">WhatsApp: (84) 99834-4139</a>
+            <span class="auth-support-separator">•</span>
+            <a href="mailto:reinaldo20jr@gmail.com">reinaldo20jr@gmail.com</a>
+        </footer>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.stop()
 
