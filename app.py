@@ -129,6 +129,21 @@ st.markdown(
             background: rgba(255, 255, 255, .24) !important;
             border-color: #FFFFFF !important;
         }
+        [data-testid="stSidebar"] .st-key-clear_filters_button button {
+            background: rgba(255, 255, 255, .14) !important;
+            border: 1px solid rgba(255, 255, 255, .55) !important;
+            color: #FFFFFF !important;
+            font-weight: 800;
+        }
+        [data-testid="stSidebar"] .st-key-clear_filters_button button p,
+        [data-testid="stSidebar"] .st-key-clear_filters_button button span {
+            color: #FFFFFF !important;
+        }
+        [data-testid="stSidebar"] .st-key-clear_filters_button button:hover,
+        [data-testid="stSidebar"] .st-key-clear_filters_button button:focus {
+            background: rgba(255, 255, 255, .24) !important;
+            border-color: #FFFFFF !important;
+        }
         .sidebar-logo { padding: 1.0rem 0 .95rem 0; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.18); margin-bottom: .75rem; }
         .sidebar-logo .icon { font-size: 3.25rem; line-height: 1; margin-bottom: .25rem; }
         .sidebar-logo .title { font-size: 1.75rem; font-weight: 900; line-height: 1; letter-spacing: .03em; }
@@ -653,6 +668,26 @@ max_date = base["data_ajuizamento"].max().date()
 # -----------------------------------------------------------------------------
 # Sidebar e filtros
 # -----------------------------------------------------------------------------
+FILTER_WIDGET_KEYS = (
+    "filter_search", "filter_patients", "header_periodo",
+    "filter_sexo", "filter_faixa_etaria", "filter_condicao_clinica",
+    "filter_sus_exclusivo", "filter_renda_familiar", "filter_regiao",
+    "filter_uf", "filter_municipio", "filter_natureza",
+    "filter_tipo_demanda", "filter_item_demandado", "filter_especialidade",
+    "filter_esfera", "filter_fase_processual", "filter_desfecho",
+    "filter_liminar", "filter_urgente", "filter_etapa_judicial",
+    "filter_etapa_saude", "filter_status_andamento", "filter_indicador_atraso",
+    "filter_medicamento_dcb", "filter_cid", "filter_rename_incorporado",
+    "filter_componente_sus", "filter_grupo_sus", "filter_pcdt_aplicavel",
+    "filter_pcdt_referencia", "filter_competencia_petsus", "filter_reu_sugerido",
+)
+
+
+def clear_dashboard_filters() -> None:
+    for widget_key in FILTER_WIDGET_KEYS:
+        st.session_state.pop(widget_key, None)
+
+
 with st.sidebar:
     st.markdown(
         '<div class="sidebar-logo"><div class="icon">⚖️➕</div><div class="title">SAÚDE PÚBLICA</div><div class="subtitle">Judicialização na Saúde</div></div>',
@@ -673,12 +708,20 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Filtros")
     st.markdown('<div class="sidebar-hint">Os gráficos e indicadores mudam automaticamente conforme os filtros.</div>', unsafe_allow_html=True)
+    st.button(
+        "Limpar todos os filtros",
+        key="clear_filters_button",
+        on_click=clear_dashboard_filters,
+        use_container_width=True,
+        help="Restaura a busca, o período e todas as seleções de filtros.",
+    )
 
     busca_paciente = ""
     paciente_ids_sel: list[str] = []
     if auth_user.is_manager:
         busca_paciente = st.text_input(
             "Buscar paciente / CPF / processo",
+            key="filter_search",
             placeholder="Ex.: Maria, PAC00042 ou PROC-2025",
             help="Esse campo procura em nome, código do paciente, CPF completo e número do processo.",
         )
@@ -697,6 +740,7 @@ with st.sidebar:
             escolhidos = st.multiselect(
                 "Selecionar paciente encontrado",
                 list(label_to_id.keys()),
+                key="filter_patients",
                 placeholder="Opcional",
                 help="Seleciona um ou mais pacientes encontrados para limitar todos os indicadores e tabelas aos seus processos.",
             )
@@ -749,7 +793,7 @@ with st.sidebar:
         reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
 
     st.markdown("---")
-    st.caption("Para limpar os filtros, desmarque as seleções ou recarregue a página.")
+    st.caption("Use o botão acima para restaurar todos os filtros.")
 
 
 # -----------------------------------------------------------------------------
