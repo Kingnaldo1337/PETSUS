@@ -167,6 +167,14 @@ class AuthStore:
             return None
         return self._row_to_user(row)
 
+    def get_active_user(self, user_id: int) -> AuthUser | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ? AND active = 1",
+                (int(user_id),),
+            ).fetchone()
+        return self._row_to_user(row) if row is not None else None
+
     def create_user(
         self,
         cpf: str,
@@ -346,6 +354,45 @@ class AuthStore:
         if updated_rows != 1:
             raise ValueError("Conta ativa não encontrada para o perfil informado.")
 
+    def delete_account_by_manager(
+        self, user_id: int, expected_role: str, acting_manager_id: int
+    ) -> None:
+        """Exclui uma conta, protegendo o gestor atual e o último gestor ativo."""
+        if expected_role not in {ROLE_USER, ROLE_MANAGER}:
+            raise ValueError("Perfil de acesso inválido.")
+        if int(user_id) == int(acting_manager_id):
+            raise ValueError("Você não pode excluir a própria conta enquanto está conectado.")
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            acting_manager = conn.execute(
+                "SELECT 1 FROM users WHERE id = ? AND role = ? AND active = 1",
+                (int(acting_manager_id), ROLE_MANAGER),
+            ).fetchone()
+            if acting_manager is None:
+                raise ValueError("O gestor responsável pela operação não está ativo.")
+            account = conn.execute(
+                "SELECT role FROM users WHERE id = ? AND role = ? AND active = 1",
+                (int(user_id), expected_role),
+            ).fetchone()
+            if account is None:
+                raise ValueError("Conta ativa não encontrada para o perfil informado.")
+            if expected_role == ROLE_MANAGER:
+                manager_count = conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE role = ? AND active = 1",
+                    (ROLE_MANAGER,),
+                ).fetchone()[0]
+                if int(manager_count) <= 1:
+                    raise ValueError("O último gestor ativo não pode ser excluído.")
+            cursor = conn.execute(
+                "DELETE FROM users WHERE id = ? AND role = ? AND active = 1",
+                (int(user_id), expected_role),
+            )
+            deleted_rows = cursor.rowcount
+            cursor.close()
+        if deleted_rows != 1:
+            raise ValueError("Não foi possível excluir a conta.")
+
     def has_manager(self) -> bool:
         with self._connect() as conn:
             row = conn.execute("SELECT 1 FROM users WHERE role = 'gestor' AND active = 1 LIMIT 1").fetchone()
@@ -412,7 +459,11 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
     """Render login/register screen and stop execution until authenticated."""
     current = st.session_state.get("auth_user")
     if isinstance(current, dict) and current.get("id"):
-        return AuthUser(**current)
+        active_user = store.get_active_user(int(current["id"]))
+        if active_user is not None:
+            st.session_state["auth_user"] = active_user.__dict__
+            return active_user
+        st.session_state.pop("auth_user", None)
 
     store.bootstrap_manager_from_env()
 

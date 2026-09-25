@@ -115,8 +115,44 @@ def _patient_edit_form(store: AuthStore, account: dict[str, object]) -> None:
             account["has_birth_date"] = True
 
 
-def _account_lookup(store: AuthStore) -> None:
-    st.markdown("### Consultar e editar conta")
+def _delete_account_form(
+    store: AuthStore, account: dict[str, object], acting_manager_id: int
+) -> None:
+    st.markdown("### Excluir conta")
+    if int(account["id"]) == acting_manager_id:
+        st.info("Sua própria conta não pode ser excluída enquanto você está conectado.")
+        return
+    st.warning(
+        "Esta ação exclui a conta e remove imediatamente o acesso ao sistema. "
+        "Os processos e dados de saúde do paciente não serão apagados."
+    )
+    with st.form(f"delete_account_{account['id']}"):
+        confirmed = st.checkbox(
+            f"Confirmo a exclusão da conta de {account['name']}."
+        )
+        submitted = st.form_submit_button("Excluir conta")
+    if not submitted:
+        return
+    if not confirmed:
+        st.error("Marque a confirmação antes de excluir a conta.")
+        return
+    try:
+        store.delete_account_by_manager(
+            int(account["id"]), str(account["role"]), acting_manager_id
+        )
+    except ValueError as exc:
+        st.error(str(exc))
+    else:
+        st.session_state.pop("internal_management_account", None)
+        st.session_state["internal_management_notice"] = "Conta excluída com sucesso."
+        st.rerun()
+
+
+def _account_lookup(store: AuthStore, acting_manager_id: int) -> None:
+    notice = st.session_state.pop("internal_management_notice", None)
+    if notice:
+        st.success(str(notice))
+    st.markdown("### Consultar, editar ou excluir conta")
     st.caption("A consulta é feita somente por CPF e retorna no máximo uma conta.")
     with st.form("internal_account_lookup"):
         cpf = st.text_input("CPF da conta", placeholder="000.000.000-00")
@@ -140,6 +176,8 @@ def _account_lookup(store: AuthStore) -> None:
         _manager_edit_form(store, account)
     else:
         _patient_edit_form(store, account)
+    st.divider()
+    _delete_account_form(store, account, acting_manager_id)
 
 
 def render_internal_management(store: AuthStore) -> None:
@@ -151,4 +189,6 @@ def render_internal_management(store: AuthStore) -> None:
     with create_tab:
         _manager_create_form(store)
     with edit_tab:
-        _account_lookup(store)
+        auth_state = st.session_state.get("auth_user", {})
+        acting_manager_id = int(auth_state.get("id", 0)) if isinstance(auth_state, dict) else 0
+        _account_lookup(store, acting_manager_id)

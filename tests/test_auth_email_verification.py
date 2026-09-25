@@ -109,3 +109,26 @@ def test_manager_update_cannot_change_an_account_using_wrong_role(tmp_path):
         assert "não encontrada" in str(exc)
     else:
         raise AssertionError("A atualização com um perfil incorreto deveria ser rejeitada")
+
+
+def test_manager_can_delete_patient_but_not_self(tmp_path):
+    store = AuthStore(tmp_path / "users.db")
+    manager = store.create_user(
+        "98765432100", "senha-gestor", "Gestor", "gestor",
+        email="gestor@example.com",
+    )
+    patient = store.create_user(
+        "12345678900", "senha-paciente", "Paciente", "usuario", "PAC1",
+        "paciente@example.com", "1990-05-20",
+    )
+
+    store.delete_account_by_manager(patient.id, "usuario", manager.id)
+    assert store.find_account_by_cpf("12345678900") is None
+    assert store.authenticate("12345678900", "senha-paciente") is None
+
+    try:
+        store.delete_account_by_manager(manager.id, "gestor", manager.id)
+    except ValueError as exc:
+        assert "própria conta" in str(exc)
+    else:
+        raise AssertionError("O gestor não deveria conseguir excluir a própria conta")
