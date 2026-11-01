@@ -59,11 +59,11 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 - [x] **Eliminação de Sobrecarga de Filtros:**
   - [x] Remover a barra lateral com os 30 filtros demográficos, geográficos e processuais na sessão do paciente.
   - [x] Caso o paciente possua mais de 1 processo ativo, disponibilizar apenas um seletor simples de processo no topo da tela.
-- [ ] **Reformulação da Interface do Paciente ($n = 1$):**
-  - [ ] Eliminar cards populacionais (`Taxa de procedência`, `Ticket médio`, `Taxa de liminares`, `Custo por esfera`).
-  - [ ] Eliminar gráficos distorcidos para registro único: roscas de 100%, boxplots colapsados, eixos com números negativos e linhas temporais com um único ponto.
-  - [ ] Exibir o status do processo em linguagem cidadã e empática (ex.: *"Seu pedido está em análise judicial"*, *"Medicamento aguardando compra pela Secretaria"*, *"Disponível para retirada"*).
-  - [ ] Destacar a **Data Limite para Cumprimento** e alerta amigável de prazo caso haja atraso na entrega.
+- [x] **Reformulação da Interface do Paciente ($n = 1$):**
+  - [x] Eliminar cards populacionais (`Taxa de procedência`, `Ticket médio`, `Taxa de liminares`, `Custo por esfera`).
+  - [x] Eliminar gráficos distorcidos para registro único: roscas de 100%, boxplots colapsados, eixos com números negativos e linhas temporais com um único ponto.
+  - [x] Exibir o status do processo em linguagem cidadã e empática (ex.: *"Seu pedido está em análise judicial"*, *"Medicamento aguardando compra pela Secretaria"*, *"Disponível para retirada"*).
+  - [x] Destacar a **Data Limite para Cumprimento** e alerta amigável de prazo caso haja atraso na entrega.
 - [ ] **Suporte, Acolhimento e Orientação Legal:**
   - [ ] Incluir cartão com contatos diretos do órgão defensor do paciente (Defensoria Pública do Estado/União, OAB ou advogado cadastrado).
   - [ ] Criar **Glossário Cidadão** explicando termos jurídicos e farmacêuticos comuns (*tutela de urgência*, *liminar*, *RENAME*, *litisconsórcio*, *polo passivo*).
