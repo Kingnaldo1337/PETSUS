@@ -41,3 +41,13 @@ def test_internal_management_is_available_only_to_managers():
 
     assert "Gestão interna" in manager_pages
     assert "Gestão interna" not in user_pages
+
+
+def test_manager_specific_pages_hidden_from_patients():
+    manager_pages, _ = navigation_for(True)
+    user_pages, _ = navigation_for(False)
+
+    for hidden in ("Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Gestão interna"):
+        assert hidden in manager_pages
+        assert hidden not in user_pages
+

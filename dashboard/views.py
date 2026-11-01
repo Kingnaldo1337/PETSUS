@@ -57,6 +57,12 @@ def render_pages(
     # -----------------------------------------------------------------------------
     # Páginas
     # -----------------------------------------------------------------------------
+    if user_role == "usuario" and pagina in (
+        "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Gestão interna"
+    ):
+        st.warning("Esta página é de acesso exclusivo para gestores da saúde.")
+        return
+
     if pagina == "Gestão interna":
         manager_session = isinstance(auth_state, dict) and auth_state.get("role") == "gestor"
         if not manager_session or auth_store is None:
