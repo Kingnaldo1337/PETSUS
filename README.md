@@ -56,9 +56,9 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 - [ ] **Desacoplamento de Telas:**
   - [x] Ocultar totalmente da navegação do paciente as abas de gestão: `Demandas`, `Medicamentos`, `Competência`, `Custos` e `Geografia`.
   - [ ] Manter apenas: `Meu Andamento` (Trilhas A e B simplificadas), `Meus Documentos / PDF` e `Orientação e Contatos`.
-- [ ] **Eliminação de Sobrecarga de Filtros:**
-  - [ ] Remover a barra lateral com os 30 filtros demográficos, geográficos e processuais na sessão do paciente.
-  - [ ] Caso o paciente possua mais de 1 processo ativo, disponibilizar apenas um seletor simples de processo no topo da tela.
+- [x] **Eliminação de Sobrecarga de Filtros:**
+  - [x] Remover a barra lateral com os 30 filtros demográficos, geográficos e processuais na sessão do paciente.
+  - [x] Caso o paciente possua mais de 1 processo ativo, disponibilizar apenas um seletor simples de processo no topo da tela.
 - [ ] **Reformulação da Interface do Paciente ($n = 1$):**
   - [ ] Eliminar cards populacionais (`Taxa de procedência`, `Ticket médio`, `Taxa de liminares`, `Custo por esfera`).
   - [ ] Eliminar gráficos distorcidos para registro único: roscas de 100%, boxplots colapsados, eixos com números negativos e linhas temporais com um único ponto.

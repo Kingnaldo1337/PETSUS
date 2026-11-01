@@ -705,20 +705,22 @@ with st.sidebar:
     page_label = st.radio("Navegação", page_labels, label_visibility="collapsed")
     pagina = page_map[page_label]
 
-    st.markdown("---")
-    st.subheader("Filtros")
-    st.markdown('<div class="sidebar-hint">Os gráficos e indicadores mudam automaticamente conforme os filtros.</div>', unsafe_allow_html=True)
-    st.button(
-        "Limpar todos os filtros",
-        key="clear_filters_button",
-        on_click=clear_dashboard_filters,
-        use_container_width=True,
-        help="Restaura a busca, o período e todas as seleções de filtros.",
-    )
-
     busca_paciente = ""
     paciente_ids_sel: list[str] = []
+    processo_paciente_sel: list[str] = []
+
     if auth_user.is_manager:
+        st.markdown("---")
+        st.subheader("Filtros")
+        st.markdown('<div class="sidebar-hint">Os gráficos e indicadores mudam automaticamente conforme os filtros.</div>', unsafe_allow_html=True)
+        st.button(
+            "Limpar todos os filtros",
+            key="clear_filters_button",
+            on_click=clear_dashboard_filters,
+            use_container_width=True,
+            help="Restaura a busca, o período e todas as seleções de filtros.",
+        )
+
         busca_paciente = st.text_input(
             "Buscar paciente / CPF / processo",
             key="filter_search",
@@ -747,53 +749,99 @@ with st.sidebar:
             paciente_ids_sel = [label_to_id[x] for x in escolhidos]
             if len(matches["paciente_id"].unique()) > 150:
                 st.caption("Mostrando os 150 primeiros pacientes encontrados. Refine a busca para localizar um paciente específico.")
+
+        with st.expander("Filtros demográficos", expanded=False):
+            sexo_sel = multiselect_sidebar("Sexo", base, "sexo")
+            faixa_sel = multiselect_sidebar("Faixa etária", base, "faixa_etaria")
+            condicao_sel = multiselect_sidebar("Condição clínica", base, "condicao_clinica")
+            sus_sel = multiselect_sidebar("SUS exclusivo", base, "sus_exclusivo")
+            renda_sel = multiselect_sidebar("Renda familiar", base, "renda_familiar")
+
+        with st.expander("Filtros geográficos", expanded=False):
+            regiao_sel = multiselect_sidebar("Região", base, "regiao")
+            uf_sel = multiselect_sidebar("UF", base, "uf")
+            mun_sel = multiselect_sidebar("Município", base, "municipio")
+
+        with st.expander("Filtros processuais", expanded=False):
+            natureza_sel = multiselect_sidebar("Natureza", base, "natureza")
+            tipo_sel = multiselect_sidebar("Tipo de demanda", base, "tipo_demanda")
+            item_sel = multiselect_sidebar("Item demandado", base, "item_demandado")
+            esp_sel = multiselect_sidebar("Especialidade", base, "especialidade")
+            esfera_sel = multiselect_sidebar("Esfera", base, "esfera")
+            fase_sel = multiselect_sidebar("Fase processual", base, "fase_processual")
+            desfecho_sel = multiselect_sidebar("Desfecho", base, "desfecho")
+            liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
+            urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
+
+        with st.expander("Filtros de andamento", expanded=False):
+            etapa_judicial_sel = multiselect_sidebar("Etapa judicial", base, "etapa_judicial")
+            etapa_saude_sel = multiselect_sidebar("Cumprimento na saúde", base, "etapa_saude")
+            status_andamento_sel = multiselect_sidebar("Status do acompanhamento", base, "status_andamento")
+            atraso_sel = multiselect_sidebar("Prazo vencido", base, "indicador_atraso")
+
+        med_ref = base[base["medicamento_petsus"] == "Sim"]
+        with st.expander("Filtros PetSUS", expanded=False):
+            dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
+            cid_sel = multiselect_sidebar("CID", med_ref, "cid")
+            rename_sel = multiselect_sidebar("Incorporado à RENAME", med_ref, "rename_incorporado")
+            componente_sel = multiselect_sidebar("Componente SUS", med_ref, "componente_sus")
+            grupo_sel = multiselect_sidebar("Grupo de financiamento", med_ref, "grupo_sus")
+            pcdt_sel = multiselect_sidebar("PCDT aplicável", med_ref, "pcdt_aplicavel")
+            pcdt_ref_sel = multiselect_sidebar("PCDT de referência", med_ref, "pcdt_referencia")
+            competencia_sel = multiselect_sidebar("Competência PetSUS", med_ref, "competencia_petsus")
+            reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
+
+        st.markdown("---")
+        st.caption("Use o botão acima para restaurar todos os filtros.")
     else:
         paciente_ids_sel = [str(auth_user.patient_id)]
-        st.caption("🔒 Seus dados estão limitados ao paciente vinculado à sua conta.")
+        st.markdown("---")
+        st.caption("🔒 **Área do Paciente**")
+        st.markdown(
+            '<div class="sidebar-hint">Seus dados e processos estão protegidos e restritos ao seu perfil pessoal.</div>',
+            unsafe_allow_html=True,
+        )
+        processos_paciente = sorted(base["processo_id"].dropna().unique().tolist())
+        if len(processos_paciente) > 1:
+            escolha = st.selectbox(
+                "Filtrar por processo",
+                ["Todos os meus processos"] + processos_paciente,
+                key="filtro_processo_paciente",
+                help="Selecione um processo específico para visualizar.",
+            )
+            if escolha != "Todos os meus processos":
+                processo_paciente_sel = [escolha]
 
-    with st.expander("Filtros demográficos", expanded=False):
-        sexo_sel = multiselect_sidebar("Sexo", base, "sexo")
-        faixa_sel = multiselect_sidebar("Faixa etária", base, "faixa_etaria")
-        condicao_sel = multiselect_sidebar("Condição clínica", base, "condicao_clinica")
-        sus_sel = multiselect_sidebar("SUS exclusivo", base, "sus_exclusivo")
-        renda_sel = multiselect_sidebar("Renda familiar", base, "renda_familiar")
-
-    with st.expander("Filtros geográficos", expanded=False):
-        regiao_sel = multiselect_sidebar("Região", base, "regiao")
-        uf_sel = multiselect_sidebar("UF", base, "uf")
-        mun_sel = multiselect_sidebar("Município", base, "municipio")
-
-    with st.expander("Filtros processuais", expanded=False):
-        natureza_sel = multiselect_sidebar("Natureza", base, "natureza")
-        tipo_sel = multiselect_sidebar("Tipo de demanda", base, "tipo_demanda")
-        item_sel = multiselect_sidebar("Item demandado", base, "item_demandado")
-        esp_sel = multiselect_sidebar("Especialidade", base, "especialidade")
-        esfera_sel = multiselect_sidebar("Esfera", base, "esfera")
-        fase_sel = multiselect_sidebar("Fase processual", base, "fase_processual")
-        desfecho_sel = multiselect_sidebar("Desfecho", base, "desfecho")
-        liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
-        urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
-
-    with st.expander("Filtros de andamento", expanded=False):
-        etapa_judicial_sel = multiselect_sidebar("Etapa judicial", base, "etapa_judicial")
-        etapa_saude_sel = multiselect_sidebar("Cumprimento na saúde", base, "etapa_saude")
-        status_andamento_sel = multiselect_sidebar("Status do acompanhamento", base, "status_andamento")
-        atraso_sel = multiselect_sidebar("Prazo vencido", base, "indicador_atraso")
-
-    med_ref = base[base["medicamento_petsus"] == "Sim"]
-    with st.expander("Filtros PetSUS", expanded=False):
-        dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
-        cid_sel = multiselect_sidebar("CID", med_ref, "cid")
-        rename_sel = multiselect_sidebar("Incorporado à RENAME", med_ref, "rename_incorporado")
-        componente_sel = multiselect_sidebar("Componente SUS", med_ref, "componente_sus")
-        grupo_sel = multiselect_sidebar("Grupo de financiamento", med_ref, "grupo_sus")
-        pcdt_sel = multiselect_sidebar("PCDT aplicável", med_ref, "pcdt_aplicavel")
-        pcdt_ref_sel = multiselect_sidebar("PCDT de referência", med_ref, "pcdt_referencia")
-        competencia_sel = multiselect_sidebar("Competência PetSUS", med_ref, "competencia_petsus")
-        reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
-
-    st.markdown("---")
-    st.caption("Use o botão acima para restaurar todos os filtros.")
+        sexo_sel = []
+        faixa_sel = []
+        condicao_sel = []
+        sus_sel = []
+        renda_sel = []
+        regiao_sel = []
+        uf_sel = []
+        mun_sel = []
+        natureza_sel = []
+        tipo_sel = []
+        item_sel = []
+        esp_sel = []
+        esfera_sel = []
+        fase_sel = []
+        desfecho_sel = []
+        liminar_sel = []
+        urgente_sel = []
+        etapa_judicial_sel = []
+        etapa_saude_sel = []
+        status_andamento_sel = []
+        atraso_sel = []
+        dcb_sel = []
+        cid_sel = []
+        rename_sel = []
+        componente_sel = []
+        grupo_sel = []
+        pcdt_sel = []
+        pcdt_ref_sel = []
+        competencia_sel = []
+        reu_sel = []
 
 
 # -----------------------------------------------------------------------------
@@ -826,6 +874,7 @@ active_filters = DashboardFilters(
     search=normalize_text(busca_paciente),
     patient_ids=tuple(str(value) for value in paciente_ids_sel),
     fields={
+        "processo_id": tuple(processo_paciente_sel),
         "sexo": tuple(sexo_sel), "faixa_etaria": tuple(faixa_sel),
         "condicao_clinica": tuple(condicao_sel), "sus_exclusivo": tuple(sus_sel),
         "renda_familiar": tuple(renda_sel), "regiao": tuple(regiao_sel),
