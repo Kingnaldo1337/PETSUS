@@ -69,7 +69,7 @@ def render_pages(
     # Páginas
     # -----------------------------------------------------------------------------
     if user_role == "usuario" and pagina in (
-        "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Gestão interna"
+        "Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Gestão interna", "Pacientes"
     ):
         st.warning("Esta página é de acesso exclusivo para gestores da saúde.")
         return

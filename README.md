@@ -53,9 +53,9 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 ### Eixo 1: Redesenho Radical do Perfil Paciente (Portal Cidadão)
 *Objetivo: Substituir a visão de BI por um serviço cidadão focado em: onde está meu pedido, quem é o responsável agora, qual é o prazo e a quem procurar.*
 
-- [ ] **Desacoplamento de Telas:**
+- [x] **Desacoplamento de Telas:**
   - [x] Ocultar totalmente da navegação do paciente as abas de gestão: `Demandas`, `Medicamentos`, `Competência`, `Custos` e `Geografia`.
-  - [ ] Manter apenas: `Meu Andamento` (Trilhas A e B simplificadas), `Meus Documentos / PDF` e `Orientação e Contatos`.
+  - [x] Manter apenas: `Visão Geral` (painel cidadão), `Meu Andamento` (Trilhas A e B + PDF + glossário) e `Meus Documentos` (tabela dos próprios registros + exportação).
 - [x] **Eliminação de Sobrecarga de Filtros:**
   - [x] Remover a barra lateral com os 30 filtros demográficos, geográficos e processuais na sessão do paciente.
   - [x] Caso o paciente possua mais de 1 processo ativo, disponibilizar apenas um seletor simples de processo no topo da tela.

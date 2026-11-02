@@ -6,9 +6,8 @@ MANAGER_PAGES = (
 )
 USER_PAGE_MAP = {
     "Visão Geral": "Visão Geral",
-    "Andamento dos Processos": "Andamento",
-    "Meu Perfil": "Pacientes",
-    "Meus Processos": "Base de Dados",
+    "Meu Andamento": "Andamento",
+    "Meus Documentos": "Base de Dados",
 }
 
 PAGE_SUBTITLES = {
@@ -36,10 +35,8 @@ def subtitle_for(page: str, is_manager: bool) -> str:
     if not is_manager:
         if page == "Visão Geral":
             return "Resumo do acompanhamento dos seus processos."
-        if page == "Andamento":
+        if page == "Meu Andamento" or page == "Andamento":
             return "Acompanhamento detalhado do andamento judicial e do cumprimento na saúde."
-        if page == "Pacientes":
-            return "Seu perfil e os processos vinculados à sua conta."
-        if page == "Base de Dados":
-            return "Seus processos detalhados e exportação dos seus próprios registros."
+        if page == "Meus Documentos" or page == "Base de Dados":
+            return "Seus processos detalhados, relatório em PDF e exportação dos seus registros."
     return PAGE_SUBTITLES.get(page, "")
