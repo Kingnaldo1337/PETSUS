@@ -143,3 +143,37 @@ def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
         placeholder="Todos",
         help=FILTER_HELP.get(column, f"Filtra os resultados pelos valores selecionados em {label}."),
     )
+
+
+def citizen_glossary_expander() -> None:
+    with st.expander("📖 Glossário Cidadão — Entenda os termos do seu processo", expanded=False):
+        st.markdown(
+            """
+            Para facilitar a compreensão do andamento do seu processo, veja o significado dos termos jurídicos e da saúde mais utilizados:
+
+            - **Tutela de Urgência / Liminar:** Decisão provisória concedida pelo juiz logo no início do processo, determinando que o SUS forneça o medicamento ou realize o procedimento imediatamente, antes da sentença final, devido ao risco à saúde ou perigo de dano irreparável.
+            - **RENAME (Relação Nacional de Medicamentos Essenciais):** Lista oficial do Ministério da Saúde com todos os medicamentos padronizados e garantidos para entrega pelo SUS.
+            - **PCDT (Protocolo Clínico e Diretrizes Terapêuticas):** Documento oficial que estabelece os critérios de diagnóstico, tratamento recomendado, remédios e doses para cada doença na rede pública.
+            - **Polo Passivo / Réu:** É contra quem a ação judicial foi proposta — geralmente o Município (prefeitura), o Estado (governo estadual) ou a União (governo federal). Eles são os responsáveis por cumprir o que o juiz ordenar.
+            - **Litisconsórcio (Responsabilidade Compartilhada):** Quando mais de um ente público (ex.: Município e Estado juntos) respondem solidariamente pela entrega do tratamento.
+            - **Intimação:** Notificação formal da Justiça para o setor de saúde informando a ordem judicial e iniciando a contagem do prazo limite para cumprimento.
+            - **Prazo de Cumprimento:** Período fixado pelo juiz (geralmente em dias úteis ou corridos) para que o medicamento seja entregue ou o procedimento seja agendado/realizado.
+            - **Princípio Ativo / DCB (Denominação Comum Brasileira):** O nome químico oficial do medicamento, independente do fabricante ou marca comercial.
+            - **Cumprimento de Sentença:** Fase da ação em que a decisão já é definitiva (não cabe mais recurso ordinário) e o poder público tem a obrigação jurídica de prestar o tratamento.
+            """
+        )
+
+
+def citizen_legal_contacts_card() -> None:
+    with st.container(border=True):
+        section_title("🏛️ Onde buscar orientação e assistência jurídica")
+        st.markdown(
+            """
+            Se você tiver dúvidas sobre o seu processo, prazos vencidos ou descumprimento de ordem judicial, procure os canais de assistência:
+
+            - **Defensoria Pública do Estado (DPE):** Assistência jurídica integral e gratuita aos cidadãos que não possuem condições financeiras de contratar advogado. Atua em processos na Justiça Estadual (contra Município ou Estado).
+            - **Defensoria Pública da União (DPU):** Atua gratuitamente em causas que tramitam na Justiça Federal (processos que envolvem a União, o Ministério da Saúde ou o INSS).
+            - **Ouvidoria do SUS — Disque Saúde 136:** Central telefônica gratuita do Ministério da Saúde para informações, reclamações e denúncias sobre falta de medicamentos e regulação.
+            - **Advogado Constituído ou OAB:** Se você contratou um advogado particular ou conta com defensor dativo indicado pela OAB, faça contato direto com o escritório responsável.
+            """
+        )

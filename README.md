@@ -64,10 +64,10 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
   - [x] Eliminar gráficos distorcidos para registro único: roscas de 100%, boxplots colapsados, eixos com números negativos e linhas temporais com um único ponto.
   - [x] Exibir o status do processo em linguagem cidadã e empática (ex.: *"Seu pedido está em análise judicial"*, *"Medicamento aguardando compra pela Secretaria"*, *"Disponível para retirada"*).
   - [x] Destacar a **Data Limite para Cumprimento** e alerta amigável de prazo caso haja atraso na entrega.
-- [ ] **Suporte, Acolhimento e Orientação Legal:**
-  - [ ] Incluir cartão com contatos diretos do órgão defensor do paciente (Defensoria Pública do Estado/União, OAB ou advogado cadastrado).
-  - [ ] Criar **Glossário Cidadão** explicando termos jurídicos e farmacêuticos comuns (*tutela de urgência*, *liminar*, *RENAME*, *litisconsórcio*, *polo passivo*).
-  - [ ] Preservar e aprimorar o botão de geração de **Relatório de Acompanhamento em PDF**.
+- [x] **Suporte, Acolhimento e Orientação Legal:**
+  - [x] Incluir cartão com contatos diretos do órgão defensor do paciente (Defensoria Pública do Estado/União, OAB ou advogado cadastrado).
+  - [x] Criar **Glossário Cidadão** explicando termos jurídicos e farmacêuticos comuns (*tutela de urgência*, *liminar*, *RENAME*, *litisconsórcio*, *polo passivo*).
+  - [x] Preservar e aprimorar o botão de geração de **Relatório de Acompanhamento em PDF**.
 
 ---
 

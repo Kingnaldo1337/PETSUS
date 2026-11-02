@@ -8,7 +8,18 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, section_title, to_excel_bytes
+from .ui import (
+    br_float,
+    br_int,
+    br_money,
+    citizen_glossary_expander,
+    citizen_legal_contacts_card,
+    insight_card,
+    metric_card,
+    pct,
+    section_title,
+    to_excel_bytes,
+)
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -236,16 +247,9 @@ def render_pages(
                     )
 
             with col_dir:
-                with st.container(border=True):
-                    section_title("💡 Dúvidas e Orientações Úteis")
-                    st.markdown(
-                        """
-                        - **Prazo venceu e não recebeu?** Procure imediatamente a **Defensoria Pública** ou seu advogado para informar o descumprimento ao juiz.
-                        - **Quer ver as etapas completas?** Acesse a aba **Andamento dos Processos** para acompanhar a linha do tempo passo a passo.
-                        - **Precisa de relatório ou comprovante?** Você pode gerar e baixar o **PDF oficial** na aba de Andamento.
-                        - **Dúvidas sobre o SUS?** Ligue gratuitamente para o **Disque Saúde 136** (Ministério da Saúde).
-                        """
-                    )
+                citizen_legal_contacts_card()
+
+            citizen_glossary_expander()
 
             if len(dff) > 1:
                 with st.container(border=True):
@@ -472,6 +476,11 @@ def render_pages(
             help="Baixa um relatório com o resumo e as etapas do processo selecionado.",
             type="primary",
         )
+
+        if user_role == "usuario":
+            st.markdown("---")
+            citizen_legal_contacts_card()
+            citizen_glossary_expander()
 
     elif pagina == "Demandas":
         cols = st.columns(5)
