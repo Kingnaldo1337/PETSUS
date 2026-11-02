@@ -82,7 +82,7 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
   - [ ] Quando o grupo filtrado tiver menos de 5 pacientes, exibir `< 5` ou omitir dados individualizados para preservar a privacidade do paciente do SUS.
 - [ ] **Segurança de Exportação e Infraestrutura:**
   - [ ] Sanitizar arquivos gerados em CSV/Excel, removendo colunas com nomes e CPFs desmascarados na exportação padrão.
-  - [ ] Ocultar barra de ferramentas e menus de desenvolvimento do Streamlit (*Share*, *GitHub*, *Manage app*) via arquivo de configuração (`.streamlit/config.toml` com `client.toolbarMode = "minimal"`).
+  - [x] Ocultar barra de ferramentas e menus de desenvolvimento do Streamlit (*Share*, *GitHub*, *Manage app*) via arquivo de configuração (`.streamlit/config.toml` com `client.toolbarMode = "minimal"`).
   - [ ] Registrar trilha de auditoria (*audit log*) das consultas de CPF e exportações realizadas no módulo de Gestão Interna.
 
 ---
