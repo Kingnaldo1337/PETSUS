@@ -23,7 +23,7 @@ from petsus.data.filters import DashboardFilters, apply_filters as filter_data
 from petsus.data.loader import DataLoadError, load_process_data
 from petsus.data.metrics import calculate_kpis
 from petsus.dashboard.navigation import navigation_for, subtitle_for
-from petsus.dashboard.pages import render_dashboard_page
+from dashboard.views import render_pages as render_dashboard_page
 
 st.set_page_config(
     page_title="Dashboard de Judicialização na Saúde",
