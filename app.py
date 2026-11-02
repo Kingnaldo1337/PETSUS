@@ -233,7 +233,30 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# Leitura e utilitários
+# Leitura dos dados e autenticação
+# -----------------------------------------------------------------------------
+DATA_SCHEMA_VERSION = "dual-tracking-v2-no-technical-brand"
+base_all = load_data(
+    DATA_FILE,
+    DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
+    DATA_SCHEMA_VERSION,
+)
+auth_store = AuthStore(DATABASE_FILE)
+auth_user = render_auth_gate(auth_store, base_all)
+
+try:
+    base = restrict_data_for_user(base_all, auth_user)
+except AccessScopeError as exc:
+    st.error(str(exc))
+    st.stop()
+
+base_total = len(base)
+base_cost_total = float(base["custo_estimado"].sum())
+min_date = base["data_ajuizamento"].min().date()
+max_date = base["data_ajuizamento"].max().date()
+
+# -----------------------------------------------------------------------------
+# Utilitários da interface
 # -----------------------------------------------------------------------------
 FILTER_WIDGET_KEYS = (
     "filter_search", "filter_patients", "header_periodo",
