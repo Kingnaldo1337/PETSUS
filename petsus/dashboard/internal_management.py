@@ -4,7 +4,7 @@ from datetime import date
 
 import streamlit as st
 
-from auth import AuthStore
+from petsus.auth.application import AuthStore
 from petsus.auth.models import ROLE_MANAGER, ROLE_USER
 from petsus.auth.registration import is_valid_email, normalize_email
 
