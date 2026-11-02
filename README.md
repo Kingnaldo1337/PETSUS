@@ -20,6 +20,8 @@ A evolução desta plataforma é orientada pelo framework de maturidade em dashb
 5. [Como Executar a Aplicação](#-como-executar-a-aplicação)
 6. [Estrutura do Código-Fonte](#-estrutura-do-código-fonte)
 
+Para instruções operacionais detalhadas, consulte o [guia de execução](README_EXECUTAR.md).
+
 ---
 
 ## 🩺 Visão Geral e Arquitetura de Perfis

@@ -13,3 +13,5 @@ dados_reais*.xlsx
 dados_reais*.csv
 *_producao.xlsx
 *_producao.csv
+*.xlsx
+!dados_dashboard_saude.xlsx
