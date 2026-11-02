@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import streamlit as st
 
-from .views.overview import render_overview
-from .views.progress import render_progress
-from .views.demands import render_demands
-from .views.medications import render_medications
-from .views.competence import render_competence
-from .views.costs import render_costs
-from .views.geography import render_geography
-from .views.patients import render_patients
+from .overview import render_overview
+from .progress import render_progress
+from .demands import render_demands
+from .medications import render_medications
+from .competence import render_competence
+from .costs import render_costs
+from .geography import render_geography
+from .patients import render_patients
 
 def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_store=None):
     auth_state = st.session_state.get("auth_user", {})
@@ -42,5 +42,5 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
     elif pagina == "Pacientes":
         render_patients(dff, base, k, participacao, part_custo, paciente_ids_sel)
     else:
-        from .views.base_data import render_base_data
+        from .base_data import render_base_data
         render_base_data(dff, base, k, participacao, part_custo, paciente_ids_sel)
