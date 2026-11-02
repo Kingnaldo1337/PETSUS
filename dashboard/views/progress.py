@@ -13,6 +13,37 @@ from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
 
+JUDICIAL_TRACK = (
+    "Documentação preparada", "Processo protocolado", "Processo distribuído",
+    "Análise técnica", "Aguardando decisão", "Decisão sobre urgência",
+    "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
+    "Recursos / encerramento",
+)
+
+
+def tracking_bar(title: str, stages, current: int, color: str) -> None:
+    help_text = (
+        "A Trilha A mostra o andamento do processo dentro do Judiciário."
+        if title.startswith("Trilha A")
+        else "A Trilha B mostra o cumprimento prático da decisão pela rede de saúde."
+    )
+    items = []
+    for index, name in enumerate(stages, start=1):
+        state = "done" if index < current else "current" if index == current else "pending"
+        marker = "✓" if index < current else str(index)
+        items.append(
+            f'<div class="flow-step {state}" style="--track-color:{color}">'
+            f'<div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>'
+        )
+    st.markdown(
+        f'<div class="flow-title">{escape(title)}'
+        f'<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" '
+        f'data-help="{escape(help_text, quote=True)}">?</span></div>'
+        f'<div class="flow-track">' + "".join(items) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_progress(dff, base, paciente_ids_sel):
     auth_state = st.session_state.get("auth_user", {})
     user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
