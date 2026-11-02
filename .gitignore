@@ -6,3 +6,10 @@ usuarios.db
 usuarios.db-*
 usuarios.secret
 .streamlit/secrets.toml
+
+# Dados reais / sensíveis — só o dataset sintético de demonstração é versionado.
+# Antes de importar qualquer dado real, adicione o padrão abaixo:
+dados_reais*.xlsx
+dados_reais*.csv
+*_producao.xlsx
+*_producao.csv
