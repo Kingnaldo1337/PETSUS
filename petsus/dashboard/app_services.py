@@ -6,7 +6,10 @@ import zlib
 from pathlib import Path
 
 import pandas as pd
+import streamlit as st
+
 from petsus.config import DATA_FILE, LIMITE_210_SM_2026, REQUIRED_COLUMNS
+from petsus.data.loader import DataLoadError, load_process_data
 
 def _cpf_digits(value: object) -> str:
     if pd.isna(value):
@@ -118,7 +121,6 @@ def load_data(path: Path, modified_at: int, schema_version: str) -> pd.DataFrame
         .map(normalize_text)
     )
     return base
-
 
 def normalize_text(value: object) -> str:
     txt = str(value).lower().strip()
@@ -417,28 +419,3 @@ def enrich_petsus_fields(base: pd.DataFrame) -> pd.DataFrame:
     return enrich_process_tracking(d)
 
 
-DATA_SCHEMA_VERSION = "dual-tracking-v2-no-technical-brand"
-base_all = load_data(
-    DATA_FILE,
-    DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
-    DATA_SCHEMA_VERSION,
-)
-auth_store = AuthStore(DATABASE_FILE)
-auth_user = render_auth_gate(auth_store, base_all)
-
-# O escopo de acesso é aplicado antes de filtros, KPIs, tabelas ou exportações.
-# Assim, um usuário comum nunca recebe registros de outros pacientes no restante do app.
-try:
-    base = restrict_data_for_user(base_all, auth_user)
-except AccessScopeError as exc:
-    st.error(str(exc))
-    st.stop()
-
-base_total = len(base)
-base_cost_total = float(base["custo_estimado"].sum())
-min_date = base["data_ajuizamento"].min().date()
-max_date = base["data_ajuizamento"].max().date()
-
-# -----------------------------------------------------------------------------
-# Sidebar e filtros
-# -----------------------------------------------------------------------------
