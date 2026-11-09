@@ -16,13 +16,76 @@ CARD_HELP = {
     "Uso contínuo": "Tratamentos que precisam de entregas ou acompanhamento periódico e não terminam na primeira dispensação.",
     "Total de Processos": "Quantidade total de processos judiciais incluídos no recorte selecionado.",
     "Pacientes Ativos": "Quantidade de pacientes distintos com processos no recorte selecionado.",
-    "Custo Total": "Soma dos custos estimados dos processos exibidos.",
+    "Custo Total": "Soma do custo_estimado, uma estimativa de impacto para o erário. Não é o valor da causa nem o PMVG anual do tratamento.",
+    "Valor anual estimado": "Estimativa anual do tratamento baseada no PMVG de referência. Não representa necessariamente o custo efetivamente pago pelo SUS.",
+    "Valor da causa estimado": "Estimativa do valor atribuído ao pedido na petição. Não é o custo efetivo do tratamento nem o PMVG anual.",
+    "Custo Medicamentos": "Soma do custo_estimado para demandas de medicamentos; estimativa de impacto para o erário, não o PMVG anual.",
+    "Custo Internações": "Soma do custo_estimado para demandas de internação; estimativa de impacto para o erário.",
+    "Maior Processo": "Maior custo_estimado individual no recorte, usado como estimativa de impacto para o erário.",
     "Tempo Médio": "Média de dias de tramitação dos processos exibidos.",
-    "Taxa de Procedência": "Percentual de processos com resultado procedente ou parcialmente procedente.",
     "Processos Urgentes": "Quantidade de processos classificados como urgentes.",
     "Taxa de Liminares": "Percentual de processos que possuem decisão liminar registrada.",
     "Ticket Médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
     "Ticket médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
+}
+
+EXPORT_SENSITIVE_COLUMNS = {
+    "cpf",
+    "cpf_completo",
+    "cpf completo",
+    "cpf_mascarado",
+    "cpf mascarado",
+    "cpf_origem",
+    "cpf_paciente",
+    "cpf paciente",
+    "paciente",
+    "paciente_id",
+    "id paciente",
+    "id do paciente",
+    "identificador do paciente",
+    "patient_id",
+}
+
+DISPLAY_COLUMN_NAMES = {
+    "processo_id": "Processo",
+    "data_ajuizamento": "Data de ajuizamento",
+    "paciente_id": "ID do paciente",
+    "paciente": "Paciente",
+    "cpf": "CPF",
+    "sexo": "Sexo",
+    "idade": "Idade",
+    "faixa_etaria": "Faixa Etária",
+    "municipio": "Município",
+    "uf": "UF",
+    "regiao": "Região",
+    "condicao_clinica": "Condição clínica",
+    "doenca_rara": "Doença rara",
+    "natureza": "Natureza",
+    "tipo_demanda": "Tipo de demanda",
+    "item_demandado": "Item demandado",
+    "especialidade": "Especialidade",
+    "medicamento_dcb": "Princípio Ativo (DCB)",
+    "rename_incorporado": "Incorporado ao SUS",
+    "componente_sus": "Componente SUS",
+    "grupo_sus": "Grupo SUS",
+    "competencia_petsus": "Competência",
+    "reu_sugerido": "Réu sugerido",
+    "fase_processual": "Fase processual",
+    "desfecho": "Desfecho",
+    "custo_estimado": "Custo estimado (erário)",
+    "valor_anual_tratamento": "Valor anual do tratamento (PMVG)",
+    "valor_causa_estimado": "Valor da causa estimado",
+    "pmvg_referencia": "PMVG de referência",
+    "apresentacao_padronizada": "Apresentação",
+    "pcdt_aplicavel": "PCDT aplicável",
+    "pcdt_referencia": "PCDT de referência",
+    "dose_prescrita": "Dose prescrita",
+    "frequencia_administracao": "Frequência de administração",
+    "duracao_meses": "Duração (meses)",
+    "acima_210_salarios_minimos": "Acima de 210 salários mínimos",
+    "indicador_atraso": "Prazo vencido",
+    "data_limite_cumprimento": "Data limite de cumprimento",
+    "tempo_tramitacao_dias": "Tempo de tramitação (dias)",
 }
 
 
@@ -60,23 +123,18 @@ FILTER_HELP = {
 }
 
 
-def mask_cpf(cpf: str | None) -> str:
-    """Mascara um CPF para exibição pública: '***. NNN.NNN-**'.
+def mask_cpf(cpf: object) -> str:
+    """Mascara um CPF para exibição pública: '***.NNN.NNN-**'.
 
-    Preserva os 3 dígitos centrais do bloco do meio e oculta início e dígitos verificadores,
-    seguindo o padrão LGPD de pseudonimização mínima para dados de saúde.
+    Preserva os seis dígitos centrais e oculta o início e os dígitos verificadores.
     Exemplo: '123.456.789-09' → '***.456.789-**'
     """
     if cpf is None or pd.isna(cpf):
         return "***.***.***-**"
     s = str(cpf).strip()
-    # Remove formatação e reaplica normalizado
     digits = "".join(c for c in s if c.isdigit())
     if len(digits) == 11:
         return f"***.{digits[3:6]}.{digits[6:9]}-**"
-    # CPF já formatado ou string bruta fora do padrão — mascara início e fim
-    if len(s) >= 4:
-        return s[:3].replace(s[:3], "***") + s[3:-2] + "**"
     return "***.***.***-**"
 
 
@@ -103,6 +161,15 @@ def br_money(value: float | int, compact: bool = True) -> str:
 
 def pct(part: float, total: float) -> float:
     return 0.0 if total in [0, None] or pd.isna(total) else (float(part) / float(total)) * 100
+
+
+def suppress_small_counts(values: pd.Series, threshold: int = 5) -> pd.Series:
+    if threshold < 1:
+        raise ValueError("O limite de supressão deve ser maior que zero.")
+    result = values.astype(object).copy()
+    numeric = pd.to_numeric(values, errors="coerce")
+    result.loc[numeric.notna() & numeric.lt(threshold)] = f"< {threshold}"
+    return result
 
 
 def fmt_periodo(df: pd.DataFrame) -> str:
@@ -151,11 +218,30 @@ def insight_card(title: str, value: str, desc: str) -> None:
     )
 
 
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
+def safe_export_frame(df: pd.DataFrame) -> pd.DataFrame:
+    sensitive_columns = [
+        column
+        for column in df.columns
+        if str(column).casefold() in EXPORT_SENSITIVE_COLUMNS
+    ]
+    return df.drop(columns=sensitive_columns).copy()
+
+
+def display_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.rename(columns=DISPLAY_COLUMN_NAMES)
+
+
+def to_excel_bytes(df: pd.DataFrame, safe_export: bool = True) -> bytes:
     output = BytesIO()
+    export_df = safe_export_frame(df) if safe_export else df
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="dados_filtrados", index=False)
+        export_df.to_excel(writer, sheet_name="dados_filtrados", index=False)
     return output.getvalue()
+
+
+def to_csv_bytes(df: pd.DataFrame, safe_export: bool = True) -> bytes:
+    export_df = safe_export_frame(df) if safe_export else df
+    return export_df.to_csv(index=False).encode("utf-8-sig")
 
 
 def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
@@ -229,7 +315,7 @@ def transparency_footer(data_file: Path, data_corte: str, proxima_atualizacao: s
         ">
             <span style="font-size:.82rem;color:#667085;font-weight:700;letter-spacing:.02em;">ℹ️ TRANSPARÊNCIA DOS DADOS</span>
             <span style="font-size:.82rem;color:#31456F;">
-                📥 <b>Última extração da base:</b> {escape(ultima_extracao)}
+                📥 <b>Última modificação da base:</b> {escape(ultima_extracao)}
             </span>
             <span style="font-size:.82rem;color:#31456F;">
                 📅 <b>Data de corte dos cálculos:</b> {escape(data_corte)}

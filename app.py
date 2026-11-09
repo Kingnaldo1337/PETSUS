@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes, transparency_footer, feedback_widget
+from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, mask_cpf, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes, transparency_footer, feedback_widget
 from petsus.auth.application import AuthStore, logout, render_auth_gate
 from petsus.access import AccessScopeError, restrict_data_for_user
 from petsus.config import (
@@ -329,7 +329,7 @@ with st.sidebar:
                 .head(150)
             )
             label_to_id = {
-                f"{row.paciente} — {row.paciente_id} — {row.cpf}": row.paciente_id
+                f"{row.paciente} — {row.paciente_id} — {mask_cpf(row.cpf)}": row.paciente_id
                 for row in pessoas.itertuples(index=False)
             }
             escolhidos = st.multiselect(
