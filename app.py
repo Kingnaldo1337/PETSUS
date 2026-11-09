@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes
+from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes, transparency_footer, feedback_widget
 from petsus.auth.application import AuthStore, logout, render_auth_gate
 from petsus.access import AccessScopeError, restrict_data_for_user
 from petsus.config import (
@@ -18,6 +18,9 @@ from petsus.config import (
     DATABASE_FILE,
     LIMITE_210_SM_2026,
     REQUIRED_COLUMNS,
+    DATA_CORTE_CALCULOS,
+    PROXIMA_ATUALIZACAO,
+    FEEDBACK_URL,
 )
 from petsus.data.filters import DashboardFilters, apply_filters as filter_data
 from petsus.data.loader import DataLoadError, load_process_data
@@ -504,3 +507,7 @@ st.markdown(
     '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os campos PetSUS adicionados nesta versão são sintéticos e não substituem consulta oficial ao CNJ, RENAME ou CMED/Anvisa.</div>',
     unsafe_allow_html=True,
 )
+
+# Eixo 6 — Governança: Selo de Transparência Temporal e Botão de Feedback
+transparency_footer(DATA_FILE, DATA_CORTE_CALCULOS, PROXIMA_ATUALIZACAO)
+feedback_widget(FEEDBACK_URL)

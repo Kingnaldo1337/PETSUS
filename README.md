@@ -167,13 +167,13 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 ### Eixo 6: Governança, Sustentação e Feedback Pós-Lançamento
 *Objetivo: Garantir confiabilidade contínua dos dados, rastreabilidade de erros e escuta dos usuários.*
 
-- [ ] **Selo de Transparência Temporal:**
-  - [ ] Exibir no cabeçalho ou rodapé de todas as páginas:
-    - *Data e hora da última extração da base de dados*;
-    - *Data de corte dos cálculos e regras de prazo*;
-    - *Data prevista para a próxima atualização*.
-- [ ] **Canal de Feedback e Ouvidoria Integrado:**
-  - [ ] Implementar botão de feedback ou formulário na interface para relatar erros de dados ou sugerir melhorias.
+- [x] **Selo de Transparência Temporal:**
+  - [x] Exibir no rodapé de todas as páginas:
+    - *Data e hora da última extração da base de dados* (via `mtime` do arquivo Excel);
+    - *Data de corte dos cálculos e regras de prazo* (configurável em `petsus/config.py` → `DATA_CORTE_CALCULOS`);
+    - *Data prevista para a próxima atualização* (configurável em `petsus/config.py` → `PROXIMA_ATUALIZACAO`).
+- [x] **Canal de Feedback e Ouvidoria Integrado:**
+  - [x] Botão flutuante fixo no canto inferior direito da tela ("💬 Reportar inconsistência"), configurável via `FEEDBACK_URL` em `petsus/config.py`.
 - [ ] **Homologação e Teste de Usabilidade (Soft Launch):**
   - [ ] Realizar piloto com 5 gestores de saúde e 10 pacientes antes do lançamento oficial.
   - [ ] Aplicar a escala internacional **SUS (*System Usability Scale*)** para mensurar ergonomia e facilidade de uso da plataforma.
