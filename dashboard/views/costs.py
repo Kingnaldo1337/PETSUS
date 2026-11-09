@@ -18,8 +18,8 @@ def render_costs(dff, base, k, participacao, part_custo, paciente_ids_sel):
     med_cost = dff[dff["natureza"] == "Medicamentos"]["custo_estimado"].sum()
     intern_cost = dff[dff["natureza"] == "Internação"]["custo_estimado"].sum()
     cards = [
-        ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo da base", "$", "icon-green"),
-        ("Ticket Médio", br_money(k["ticket"]), "custo total estimado ÷ número de processos", "🧾", "icon-blue"),
+        ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% da base · estimativa para o erário", "$", "icon-green"),
+        ("Ticket Médio", br_money(k["ticket"]), "custo_estimado médio por processo", "🧾", "icon-blue"),
         ("Custo Medicamentos", br_money(med_cost), f"{br_float(pct(med_cost, k['custo']))}% do recorte", "💊", "icon-purple"),
         ("Custo Internações", br_money(intern_cost), f"{br_float(pct(intern_cost, k['custo']))}% do recorte", "🏥", "icon-orange"),
         ("Maior Processo", br_money(dff["custo_estimado"].max()), "maior valor individual", "📈", "icon-green"),

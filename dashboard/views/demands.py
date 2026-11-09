@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..charts import CORES, barh, chart_layout, empty_fig, monthly_line, top_group
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, display_columns, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -52,12 +52,26 @@ def render_demands(dff, base, k, participacao, part_custo, paciente_ids_sel):
             trend = trend.sort_values("ano_mes")
             trend["mes"] = pd.to_datetime(trend["ano_mes"] + "-01").dt.strftime("%m/%Y")
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=trend["mes"], y=trend["liminares"], mode="lines+markers", name="Liminares", line=dict(color="#7C3AED", width=3)))
-            fig.add_trace(go.Scatter(x=trend["mes"], y=trend["urgentes"], mode="lines+markers", name="Urgentes", line=dict(color="#F59E0B", width=3)))
+            fig.add_trace(go.Scatter(x=trend["mes"], y=trend["liminares"], mode="lines+markers", name="Liminares registradas", line=dict(color=CORES["deferido"], width=3)))
+            fig.add_trace(go.Scatter(x=trend["mes"], y=trend["urgentes"], mode="lines+markers", name="Demandas urgentes", line=dict(color=CORES["pendente"], width=3)))
             fig.update_layout(**chart_layout(height=370, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)))
             fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
             fig.update_xaxes(showgrid=False)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    with st.container(border=True):
+        section_title("Registro de liminares na base")
+        com_liminar = int((dff["liminar"] == "Sim").sum())
+        sem_liminar = int((dff["liminar"] == "Não").sum())
+        liminar_cols = st.columns(2)
+        with liminar_cols[0]:
+            metric_card("Liminar registrada: Sim", br_int(com_liminar), "conforme o campo liminar", "✅", "icon-green")
+        with liminar_cols[1]:
+            metric_card("Liminar registrada: Não", br_int(sem_liminar), "conforme o campo liminar", "—", "icon-orange")
+        st.info(
+            "A base atual não diferencia pedido formulado, liminar deferida ou indeferida e pedido aguardando decisão. "
+            "Esses estados não podem ser calculados com segurança a partir do campo Sim/Não."
+        )
 
     c, d, e = st.columns([1.15, 1.15, 1.25])
     with c:
@@ -83,4 +97,4 @@ def render_demands(dff, base, k, participacao, part_custo, paciente_ids_sel):
             ).sort_values("processos", ascending=False).head(12)
             table["custo_total"] = table["custo_total"].map(lambda x: br_money(x, compact=False))
             table["tempo_medio"] = table["tempo_medio"].map(lambda x: f"{br_int(x)} dias")
-            st.dataframe(table.rename(columns={"tipo_demanda": "Tipo", "fase_processual": "Fase", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "tempo_medio": "Tempo Médio"}), hide_index=True, use_container_width=True, height=330)
+            st.dataframe(display_columns(table.rename(columns={"tipo_demanda": "Tipo", "fase_processual": "Fase", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "tempo_medio": "Tempo Médio"})), hide_index=True, use_container_width=True, height=330)

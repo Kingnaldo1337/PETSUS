@@ -9,6 +9,11 @@ def percentage(part: float, total: float) -> float:
 
 def calculate_kpis(df: pd.DataFrame) -> dict[str, float]:
     total = len(df)
+    desfechos = df["desfecho"].astype("string").str.strip().str.casefold()
+    desfecho_definido = desfechos.notna() & desfechos.ne("") & ~desfechos.isin(
+        {"em andamento", "sem resolução de mérito"}
+    )
+    procedente = desfechos.isin({"procedente", "parcialmente procedente"})
     return {
         "total": total,
         "pacientes": df["paciente_id"].nunique(),
@@ -18,9 +23,8 @@ def calculate_kpis(df: pd.DataFrame) -> dict[str, float]:
         "liminar": percentage((df["liminar"] == "Sim").sum(), total),
         "urgentes": int((df["urgente"] == "Sim").sum()),
         "procedencia": percentage(
-            df["desfecho"].isin(["Procedente", "Parcialmente procedente"]).sum(), total
+            (procedente & desfecho_definido).sum(), desfecho_definido.sum()
         ),
         "idade_media": df.drop_duplicates("paciente_id")["idade"].mean(),
         "municipios": df["municipio"].nunique(),
     }
-
