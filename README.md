@@ -52,6 +52,35 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 
 ## 📋 Checklist Mestre de Tarefas e Melhorias
 
+### Ordem de execução das pendências — Eixos 2, 3, 4 e 6
+
+As tarefas abaixo estão ordenadas do menor para o maior esforço de implementação com IA. O Eixo 5 está pausado e não faz parte desta fila. Itens que exigem decisão institucional, contato válido ou validação da curadoria ficam separados para evitar implementação baseada em suposições.
+
+#### Fazer primeiro — baixo esforço
+
+1. **Corrigir a semântica visual de liminares (Eixos 3 e 4):** trocar a cor da série “Liminares registradas” por uma cor neutra. O campo atual “Sim/Não” não confirma deferimento, então não deve usar a cor semântica de “Deferido”.
+2. **Garantir transparência também quando não há resultados (Eixo 6):** ajustar o fluxo de tela vazia para que o rodapé temporal e o aviso de dados demonstrativos continuem visíveis.
+3. **Evitar divulgar um canal de feedback inválido (Eixo 6):** remover/desativar o link de e-mail de exemplo até haver um endereço real confirmado. Não substituir por outro endereço presumido.
+4. **Deixar explícito o caráter demonstrativo nos indicadores de prazo (Eixo 3):** reforçar junto ao acompanhamento e ao status de atraso que os registros e prazos exibidos são sintéticos, não confirmações de casos reais.
+
+#### Fazer depois — esforço médio
+
+5. **Revisar as visualizações restantes (Eixo 4):** verificar rótulos, nomes técnicos, margens, escalas desproporcionais e faixas etárias nas telas de gestão; corrigir apenas os problemas observados, preservando a interpretação dos dados.
+6. **Revisar a supressão nas análises geográficas existentes (Eixo 2):** validar que contagens e valores de grupos pequenos não possam ser recuperados por outra visualização da mesma tela. Cruzamentos novos não serão criados nesta etapa.
+7. **Revisar a documentação e o checklist conforme cada item for concluído:** manter os estados `[x]` apenas para critérios efetivamente implementados e testados.
+
+#### Aguardar definição ou insumo — não implementar por suposição
+
+- **Regra da taxa de procedência (Eixo 3):** confirmar se acordos entram no denominador e se procedência total e parcial devem ser exibidas separadamente.
+- **Critério de urgência e estados de liminar (Eixo 3):** a base atual só oferece liminar Sim/Não; novos estados ou interpretações dependem de definição e dados validados.
+- **Ano de referência do limite de 210 salários mínimos (Eixo 3):** decidir qual referência usar para o recorte sintético antes de alterar o cálculo.
+- **Coerência clínica da base sintética (Eixo 3):** requer revisão do curador; não inferir nem alterar prescrições automaticamente.
+- **Data de corte, próxima atualização e canal de feedback (Eixo 6):** precisam de datas e endereço reais confirmados. Até lá, manter “A definir” e não divulgar o e-mail inexistente como canal funcional.
+- **Acesso excepcional a CPF e trilha de auditoria (Eixo 2):** só desenhar após definir necessidade, perfis autorizados, finalidade e requisitos de registro.
+- **Piloto com gestores/pacientes e escala SUS (Eixo 6):** atividade de homologação com participantes reais, não uma tarefa de implementação autônoma.
+
+Depois de concluir as tarefas implementáveis e receber os insumos necessários, atualizar esta fila e preparar o resumo para validação do responsável. O Eixo 5 permanece fora desta etapa.
+
 ### Eixo 1: Redesenho Radical do Perfil Paciente (Portal Cidadão)
 *Objetivo: Substituir a visão de BI por um serviço cidadão focado em: onde está meu pedido, quem é o responsável agora, qual é o prazo e a quem procurar.*
 
