@@ -60,6 +60,26 @@ FILTER_HELP = {
 }
 
 
+def mask_cpf(cpf: str | None) -> str:
+    """Mascara um CPF para exibição pública: '***. NNN.NNN-**'.
+
+    Preserva os 3 dígitos centrais do bloco do meio e oculta início e dígitos verificadores,
+    seguindo o padrão LGPD de pseudonimização mínima para dados de saúde.
+    Exemplo: '123.456.789-09' → '***.456.789-**'
+    """
+    if cpf is None or pd.isna(cpf):
+        return "***.***.***-**"
+    s = str(cpf).strip()
+    # Remove formatação e reaplica normalizado
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) == 11:
+        return f"***.{digits[3:6]}.{digits[6:9]}-**"
+    # CPF já formatado ou string bruta fora do padrão — mascara início e fim
+    if len(s) >= 4:
+        return s[:3].replace(s[:3], "***") + s[3:-2] + "**"
+    return "***.***.***-**"
+
+
 def br_int(value: float | int) -> str:
     if pd.isna(value):
         return "0"
