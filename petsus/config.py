@@ -23,8 +23,8 @@ LIMITE_210_SM_2026 = 210 * SALARIO_MINIMO_2026
 # Ajuste quando a base for atualizada para uma nova extração real.
 DATA_CORTE_CALCULOS = "2025-12-31"
 
-# Descrição do próximo ciclo de atualização previsto da base de dados.
-PROXIMA_ATUALIZACAO = "Janeiro / 2026"
+# Atualize após confirmação do próximo ciclo pelo curador da base.
+PROXIMA_ATUALIZACAO = "A definir"
 
 # URL do formulário de feedback (substitua pelo link real: Google Forms, Typeform etc.)
 FEEDBACK_URL = "mailto:petsus@saude.gov.br?subject=Feedback%20PETSUS"
