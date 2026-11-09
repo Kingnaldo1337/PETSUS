@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+from datetime import datetime
 from html import escape
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -177,3 +181,84 @@ def citizen_legal_contacts_card() -> None:
             - **Advogado Constituído ou OAB:** Se você contratou um advogado particular ou conta com defensor dativo indicado pela OAB, faça contato direto com o escritório responsável.
             """
         )
+
+
+def transparency_footer(data_file: Path, data_corte: str, proxima_atualizacao: str) -> None:
+    """Rodapé de transparência temporal — exibe data de extração, corte e próxima atualização.
+
+    Deve ser chamado no final de cada renderização de página (após o conteúdo principal).
+    """
+    try:
+        mtime = datetime.fromtimestamp(data_file.stat().st_mtime)
+        ultima_extracao = mtime.strftime("%d/%m/%Y às %H:%M")
+    except (FileNotFoundError, OSError):
+        ultima_extracao = "Não disponível"
+
+    st.markdown(
+        f"""
+        <div style="
+            margin-top: 2rem;
+            padding: .85rem 1.1rem;
+            background: #F0F4FB;
+            border: 1px solid #DDE6F2;
+            border-radius: 14px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .6rem 2rem;
+            align-items: center;
+        ">
+            <span style="font-size:.82rem;color:#667085;font-weight:700;letter-spacing:.02em;">ℹ️ TRANSPARÊNCIA DOS DADOS</span>
+            <span style="font-size:.82rem;color:#31456F;">
+                📥 <b>Última extração da base:</b> {escape(ultima_extracao)}
+            </span>
+            <span style="font-size:.82rem;color:#31456F;">
+                📅 <b>Data de corte dos cálculos:</b> {escape(data_corte)}
+            </span>
+            <span style="font-size:.82rem;color:#31456F;">
+                🔄 <b>Próxima atualização prevista:</b> {escape(proxima_atualizacao)}
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def feedback_widget(feedback_url: str) -> None:
+    """Widget flutuante de feedback no canto inferior direito da tela."""
+    st.markdown(
+        f"""
+        <style>
+        .petsus-feedback-btn {{
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 9999;
+            background: linear-gradient(135deg, #083E82 0%, #125CC9 100%);
+            color: #FFFFFF !important;
+            border: none;
+            border-radius: 50px;
+            padding: .65rem 1.2rem;
+            font-size: .88rem;
+            font-weight: 800;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(8, 62, 130, 0.35);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: .45rem;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }}
+        .petsus-feedback-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 10px 28px rgba(8, 62, 130, 0.45);
+            color: #FFFFFF !important;
+        }}
+        </style>
+        <a class="petsus-feedback-btn" href="{escape(feedback_url, quote=True)}" target="_blank" rel="noopener noreferrer"
+           title="Clique para reportar uma inconsistência ou sugerir uma melhoria">
+            💬 Reportar inconsistência
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
