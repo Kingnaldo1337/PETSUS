@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..charts import CORES, barh, chart_layout, empty_fig, monthly_line, top_group
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, display_columns, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -32,7 +32,7 @@ def render_competence(dff, base, k, participacao, part_custo, paciente_ids_sel):
             ("Justiça Estadual", f"{br_float(pct(estadual, len(med)))}%", f"{br_int(estadual)} processos", "⚖️", "icon-green"),
             ("≥ 210 salários mínimos", br_int(alto_custo), "tratamentos anuais acima do limite de referência", "💰", "icon-orange"),
             ("Réu mais sugerido", reu_top["reu_sugerido"].iloc[0] if not reu_top.empty else "-", "maior frequência no recorte", "👤", "icon-purple"),
-            ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "soma dos valores estimados", "$", "icon-green"),
+            ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "estimativa do pedido na petição; não é custo efetivo", "$", "icon-green"),
         ]
         for col, card in zip(cols, cards):
             with col:
@@ -43,7 +43,12 @@ def render_competence(dff, base, k, participacao, part_custo, paciente_ids_sel):
             with st.container(border=True):
                 section_title("Competência judicial")
                 comp = med.groupby("competencia_petsus", as_index=False).size().rename(columns={"size": "processos"})
-                st.plotly_chart(donut(comp, "competencia_petsus", "processos", f"{br_int(len(med))}<br>Demandas", height=340), use_container_width=True, config={"displayModeBar": False})
+                comp["texto"] = comp["processos"].map(br_int)
+                cores_competencia = {
+                    "Justiça Estadual": CORES["justica_estadual"],
+                    "Justiça Federal": CORES["justica_federal"],
+                }
+                st.plotly_chart(barh(comp, "competencia_petsus", "processos", "texto", height=340, color=cores_competencia), use_container_width=True, config={"displayModeBar": False})
         with b:
             with st.container(border=True):
                 section_title("Réu sugerido")
@@ -55,12 +60,16 @@ def render_competence(dff, base, k, participacao, part_custo, paciente_ids_sel):
                 section_title("Competência x incorporação à RENAME")
                 cross = pd.crosstab(med["rename_incorporado"], med["competencia_petsus"]).reset_index()
                 fig = go.Figure()
-                for nome, color in [("Justiça Federal", "#125CC9"), ("Justiça Estadual", "#39A74A")]:
+                for nome, color in [
+                    ("Justiça Federal", CORES["justica_federal"]),
+                    ("Justiça Estadual", CORES["justica_estadual"]),
+                ]:
                     if nome not in cross.columns:
                         cross[nome] = 0
                     fig.add_trace(go.Bar(x=cross["rename_incorporado"], y=cross[nome], name=nome, marker_color=color, text=cross[nome], textposition="inside"))
                 fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
-                fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
+                fig.update_yaxes(title_text="Processos", showgrid=True, gridcolor="#E8EDF5", zeroline=False, automargin=True)
+                fig.update_xaxes(title_text="Incorporado ao SUS", automargin=True)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         d, e = st.columns([1.05, 1.6])
@@ -77,10 +86,10 @@ def render_competence(dff, base, k, participacao, part_custo, paciente_ids_sel):
                     "processo_id", "cid", "medicamento_dcb", "rename_incorporado", "componente_sus", "grupo_sus",
                     "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_petsus", "reu_sugerido"
                 ]].sort_values("valor_anual_tratamento", ascending=False).head(15)
-                st.dataframe(tab.rename(columns={
-                    "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "DCB", "rename_incorporado": "RENAME",
-                    "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual",
+                st.dataframe(display_columns(tab.rename(columns={
+                    "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "Princípio Ativo (DCB)", "rename_incorporado": "Incorporado ao SUS",
+                    "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual do tratamento (PMVG)",
                     "acima_210_salarios_minimos": "≥ 210 SM", "competencia_petsus": "Competência", "reu_sugerido": "Réu sugerido"
-                }), hide_index=True, use_container_width=True, height=360, column_config={
-                    "Valor anual": st.column_config.NumberColumn("Valor anual", format="R$ %.2f")
+                })), hide_index=True, use_container_width=True, height=360, column_config={
+                    "Valor anual do tratamento (PMVG)": st.column_config.NumberColumn("Valor anual do tratamento (PMVG)", format="R$ %.2f")
                 })

@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..charts import CORES, barh, chart_layout, empty_fig, monthly_line, top_group
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, display_columns, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -194,7 +194,7 @@ def render_overview(dff, base, k, participacao, part_custo, paciente_ids_sel):
                 if p_table["data_limite_cumprimento"].dtype == "object" or hasattr(p_table["data_limite_cumprimento"].iloc[0], "strftime"):
                     p_table["data_limite_cumprimento"] = pd.to_datetime(p_table["data_limite_cumprimento"], errors="coerce").dt.strftime("%d/%m/%Y").fillna("A definir")
                 st.dataframe(
-                    p_table.rename(columns={
+                    display_columns(p_table.rename(columns={
                         "processo_id": "Processo",
                         "data_ajuizamento": "Data",
                         "item_demandado": "Item / Medicamento",
@@ -203,7 +203,7 @@ def render_overview(dff, base, k, participacao, part_custo, paciente_ids_sel):
                         "etapa_saude": "Situação no SUS",
                         "data_limite_cumprimento": "Data Limite",
                         "indicador_atraso": "Prazo Vencido",
-                    }),
+                    })),
                     hide_index=True,
                     use_container_width=True,
                 )
@@ -214,9 +214,9 @@ def render_overview(dff, base, k, participacao, part_custo, paciente_ids_sel):
         cards = [
             ("Total de Processos", br_int(k["total"]), f"{br_float(participacao)}% da base total", "📄", "icon-blue"),
             ("Pacientes Ativos", br_int(k["pacientes"]), f"{br_float(pct(k['pacientes'], base['paciente_id'].nunique()))}% dos pacientes", "👥", "icon-green"),
-            ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo total", "$", "icon-green"),
+            ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% da base · estimativa para o erário", "$", "icon-green"),
             ("Tempo Médio", f"{br_int(k['tempo'])} dias", "tempo médio de tramitação", "⏱", "icon-orange"),
-            ("Taxa de Procedência", f"{br_float(k['procedencia'])}%", "procedente + parcialmente", "🛡", "icon-purple"),
+            ("Taxa de Procedência", f"{br_float(k['procedencia'])}%", "sobre processos com resolução de mérito", "🛡", "icon-purple"),
         ]
         cols = st.columns(len(cards))
         for col, card in zip(cols, cards):
@@ -236,12 +236,22 @@ def render_overview(dff, base, k, participacao, part_custo, paciente_ids_sel):
             with st.container(border=True):
                 section_title("Natureza da ação")
                 nat = dff.groupby("natureza", as_index=False).size().rename(columns={"size": "processos"}).sort_values("processos", ascending=False)
-                st.plotly_chart(donut(nat, "natureza", "processos", f"{br_int(k['total'])}<br>Total", height=340), use_container_width=True, config={"displayModeBar": False})
+                nat["texto"] = nat["processos"].map(br_int)
+                st.plotly_chart(barh(nat, "natureza", "processos", "texto", height=340), use_container_width=True, config={"displayModeBar": False})
         with c:
             with st.container(border=True):
                 section_title("Desfecho processual")
                 desf = dff.groupby("desfecho", as_index=False).size().rename(columns={"size": "processos"}).sort_values("processos", ascending=False)
-                st.plotly_chart(donut(desf, "desfecho", "processos", f"{br_float(k['procedencia'])}%<br>Proced.", height=340), use_container_width=True, config={"displayModeBar": False})
+                desf["texto"] = desf["processos"].map(br_int)
+                cores_desfecho = {
+                    "Procedente": CORES["deferido"],
+                    "Parcialmente procedente": CORES["deferido"],
+                    "Improcedente": CORES["indeferido"],
+                    "Em andamento": CORES["pendente"],
+                    "Sem resolução de mérito": CORES["pendente"],
+                    "Acordo": CORES["justica_federal"],
+                }
+                st.plotly_chart(barh(desf, "desfecho", "processos", "texto", height=340, color=cores_desfecho), use_container_width=True, config={"displayModeBar": False})
 
         d, e, f = st.columns([1.35, 1.35, 1.30])
         with d:

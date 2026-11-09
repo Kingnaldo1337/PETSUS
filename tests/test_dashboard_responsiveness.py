@@ -1,6 +1,6 @@
 import pandas as pd
 
-from dashboard.charts import barh, chart_layout, donut
+from dashboard.charts import CORES, barh, chart_layout, donut
 from petsus.dashboard.navigation import navigation_for
 
 
@@ -10,7 +10,7 @@ def test_chart_layout_keeps_layout_responsive():
     assert layout["height"] == 350
     assert layout["autosize"] is True
     assert layout["margin"]["l"] == 10
-    assert layout["margin"]["r"] == 20
+    assert layout["margin"]["r"] == 40
 
 
 def test_horizontal_bar_uses_auto_margin_for_long_labels():
@@ -23,6 +23,30 @@ def test_horizontal_bar_uses_auto_margin_for_long_labels():
 
     assert fig.layout.yaxis.automargin is True
     assert fig.layout.margin.r >= 10
+
+
+def test_bar_uses_fixed_semantic_colors():
+    df = pd.DataFrame(
+        {
+            "competencia": ["Justiça Federal", "Justiça Estadual"],
+            "processos": [3, 5],
+        }
+    )
+
+    fig = barh(
+        df,
+        "competencia",
+        "processos",
+        color={
+            "Justiça Estadual": CORES["justica_estadual"],
+            "Justiça Federal": CORES["justica_federal"],
+        },
+    )
+
+    assert list(fig.data[0].marker.color) == [
+        CORES["justica_federal"],
+        CORES["justica_estadual"],
+    ]
 
 
 def test_donut_legend_does_not_consume_horizontal_space():
@@ -50,4 +74,3 @@ def test_manager_specific_pages_hidden_from_patients():
     for hidden in ("Demandas", "Medicamentos", "Competência", "Custos", "Geografia", "Gestão interna"):
         assert hidden in manager_pages
         assert hidden not in user_pages
-

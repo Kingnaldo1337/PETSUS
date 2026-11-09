@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..charts import barh, chart_layout, empty_fig, monthly_line, top_group
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, display_columns, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -29,7 +29,7 @@ def render_medications(dff, base, k, participacao, part_custo, paciente_ids_sel)
             ("DCB distintos", br_int(med["medicamento_dcb"].nunique()), "princípios ativos no recorte", "🧪", "icon-purple"),
             ("Incorporados à RENAME", f"{br_float(pct(incorporados, len(med)))}%", f"{br_int(incorporados)} registros", "✅", "icon-green"),
             ("PMVG médio", br_money(med["pmvg_referencia"].mean()), "preço de referência sintético por administração", "$", "icon-orange"),
-            ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "soma anual dos tratamentos", "📈", "icon-green"),
+            ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "PMVG de referência anualizado; não é gasto efetivo", "📈", "icon-green"),
         ]
         for col, card in zip(cols, cards):
             with col:
@@ -40,7 +40,8 @@ def render_medications(dff, base, k, participacao, part_custo, paciente_ids_sel)
             with st.container(border=True):
                 section_title("Incorporação à RENAME")
                 ren = med.groupby("rename_incorporado", as_index=False).size().rename(columns={"size": "processos"})
-                st.plotly_chart(donut(ren, "rename_incorporado", "processos", f"{br_int(len(med))}<br>Demandas", height=330), use_container_width=True, config={"displayModeBar": False})
+                ren["texto"] = ren["processos"].map(br_int)
+                st.plotly_chart(barh(ren, "rename_incorporado", "processos", "texto", height=330), use_container_width=True, config={"displayModeBar": False})
         with b:
             with st.container(border=True):
                 section_title("Componente de financiamento SUS")
@@ -51,7 +52,8 @@ def render_medications(dff, base, k, participacao, part_custo, paciente_ids_sel)
             with st.container(border=True):
                 section_title("PCDT aplicável")
                 pcdt = med.groupby("pcdt_aplicavel", as_index=False).size().rename(columns={"size": "processos"})
-                st.plotly_chart(donut(pcdt, "pcdt_aplicavel", "processos", f"{br_float(pct((med['pcdt_aplicavel']=='Sim').sum(), len(med)))}%<br>com PCDT", height=330), use_container_width=True, config={"displayModeBar": False})
+                pcdt["texto"] = pcdt["processos"].map(br_int)
+                st.plotly_chart(barh(pcdt, "pcdt_aplicavel", "processos", "texto", height=330), use_container_width=True, config={"displayModeBar": False})
 
         d, e, f = st.columns([1.2, 1.2, 1.35])
         with d:
@@ -78,9 +80,9 @@ def render_medications(dff, base, k, participacao, part_custo, paciente_ids_sel)
                 tab["% RENAME"] = tab.apply(lambda r: f"{br_float(pct(r['incorporados'], r['demandas']))}%", axis=1)
                 tab["pmvg_medio"] = tab["pmvg_medio"].map(lambda x: br_money(x, compact=False))
                 tab["valor_anual"] = tab["valor_anual"].map(br_money)
-                st.dataframe(tab[["medicamento_dcb", "demandas", "% RENAME", "pmvg_medio", "valor_anual"]].rename(columns={
-                    "medicamento_dcb": "DCB", "demandas": "Demandas", "pmvg_medio": "PMVG Médio", "valor_anual": "Valor Anual"
-                }), hide_index=True, use_container_width=True, height=350)
+                st.dataframe(display_columns(tab[["medicamento_dcb", "demandas", "% RENAME", "pmvg_medio", "valor_anual"]].rename(columns={
+                    "demandas": "Demandas", "pmvg_medio": "PMVG médio", "valor_anual": "Valor anual do tratamento (PMVG)"
+                })), hide_index=True, use_container_width=True, height=350)
 
         with st.container(border=True):
             section_title("Detalhamento PetSUS")
@@ -90,7 +92,7 @@ def render_medications(dff, base, k, participacao, part_custo, paciente_ids_sel)
                 "duracao_meses", "pmvg_referencia", "valor_anual_tratamento",
             ]
             det = med[detail_cols].sort_values("valor_anual_tratamento", ascending=False).head(200)
-            st.dataframe(det, hide_index=True, use_container_width=True, height=360, column_config={
-                "pmvg_referencia": st.column_config.NumberColumn("PMVG Referência", format="R$ %.2f"),
-                "valor_anual_tratamento": st.column_config.NumberColumn("Valor anual", format="R$ %.2f"),
+            st.dataframe(display_columns(det), hide_index=True, use_container_width=True, height=360, column_config={
+                "PMVG de referência": st.column_config.NumberColumn("PMVG de referência", format="R$ %.2f"),
+                "Valor anual do tratamento (PMVG)": st.column_config.NumberColumn("Valor anual do tratamento (PMVG)", format="R$ %.2f"),
             })
