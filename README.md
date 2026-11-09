@@ -43,10 +43,10 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 | Dimensão | Perfil Gestor | Perfil Paciente | Status / Diretriz de Correção |
 |---|---|---|---|
 | **1. Considerações Centrais (5W1H)** | Bem alinhado aos objetivos de gestão | **Desalinhado:** cópia filtrada do gestor com indicadores inadequados para $n=1$ | **Prioridade Alta:** redesenhar a experiência do paciente |
-| **2. Curadoria de Dados** | Boa, mas com métricas de procedência e custos ambíguas | Herda ambiguidades e gera falsas leituras (ex.: taxa de procedência 0% para processo em curso) | **Prioridade Alta:** explicitar denominadores e ajustar base sintética |
-| **3. Design das Visualizações** | Robusto nas trilhas; excesso de gráficos de rosca e cores instáveis | Gráficos sem sentido para $n=1$ (roscas 100%, eixos negativos) | **Prioridade Média:** substituir roscas por barras e fixar paleta cromática |
-| **4. Hospedagem e LGPD** | Bom isolamento, mas expõe CPFs completos e não suprime células pequenas ($n < 5$) | Bom isolamento dos próprios registros | **Prioridade Máxima:** mascarar CPFs e aplicar regras de supressão |
-| **5. Feedback e Revisão** | Ausente (sem canal de erro, sem datas de atualização explícitas) | Ausente | **Prioridade Média:** implementar selo temporal e canal de feedback |
+| **2. Curadoria de Dados** | Denominador da procedência explícito; custos estimados diferenciados; classificação detalhada de liminares depende de novos dados | Herda limites da fonte sintética | **Em andamento:** validar semântica e completar campos com o curador |
+| **3. Design das Visualizações** | Roscas de gestão substituídas por barras nos indicadores priorizados; paleta semântica e margens ajustadas | Gráficos do perfil individual preservados conforme contexto | **Em andamento:** revisar escalas e demais visualizações |
+| **4. Hospedagem e LGPD** | CPF mascarado na interface e exportações padrão sem identificadores diretos; contagens pequenas suprimidas nas análises geográficas existentes | Isolamento dos próprios registros | **Em andamento:** auditar acessos e definir campos para cruzamentos sensíveis |
+| **5. Feedback e Revisão** | Rodapé temporal e canal de feedback implementados | Disponíveis nas páginas renderizadas | **Implementado no MVP** |
 
 ---
 
@@ -77,13 +77,13 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 *Objetivo: Proteger dados pessoais sensíveis de saúde e eliminar qualquer risco de reidentificação ou vazamento.*
 
 - [ ] **Mascaramento Universal de CPF:**
-  - [ ] Mascarar CPFs em **todas** as tabelas analíticas (`***.456.789-**`), em especial nas páginas *Pacientes* (*Pacientes com maior custo acumulado*) e *Base de Dados*.
-  - [ ] Permitir visualização do CPF completo apenas para perfis autorizados de assistência direta, com registro obrigatório de auditoria.
+  - [x] Mascarar CPFs em tabelas, cartões de paciente e resultados de busca.
+  - [ ] Criar fluxo autorizado e auditado para acesso excepcional ao CPF completo; atualmente ele não é exibido na interface.
 - [ ] **Regra de Supressão Estatística de Células Pequenas ($k$-Anonimato / $n < 5$):**
-  - [ ] Implementar supressão em cruzamentos analíticos com alto potencial de reidentificação (ex.: combinações de *município pequeno + doença rara + faixa etária*).
-  - [ ] Quando o grupo filtrado tiver menos de 5 pacientes, exibir `< 5` ou omitir dados individualizados para preservar a privacidade do paciente do SUS.
+  - [x] Suprimir contagens pequenas nas tabelas geográficas e omitir grupos com menos de 5 processos nos gráficos e mapas municipais existentes.
+  - [ ] Aplicar a regra a cruzamentos de município, doença rara e faixa etária caso esses cruzamentos sejam adicionados.
 - [ ] **Segurança de Exportação e Infraestrutura:**
-  - [ ] Sanitizar arquivos gerados em CSV/Excel, removendo colunas com nomes e CPFs desmascarados na exportação padrão.
+  - [x] Sanitizar CSV/Excel padrão, removendo nome, ID do paciente e colunas de CPF.
   - [x] Ocultar barra de ferramentas e menus de desenvolvimento do Streamlit (*Share*, *GitHub*, *Manage app*) via arquivo de configuração (`.streamlit/config.toml` com `client.toolbarMode = "minimal"`).
   - [ ] Registrar trilha de auditoria (*audit log*) das consultas de CPF e exportações realizadas no módulo de Gestão Interna.
 
@@ -93,20 +93,17 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 *Objetivo: Eliminar ambiguidades conceituais, padronizar fórmulas e garantir coerência temporal dos cálculos.*
 
 - [ ] **Taxa de Procedência:**
-  - [ ] Explicitar fórmula no ícone de ajuda `(?)`: $\text{Taxa de Êxito} = \frac{\text{Procedentes}}{\text{Processos com Julgamento de Mérito}}$.
+  - [x] Explicar a fórmula no ícone de ajuda: procedentes e parcialmente procedentes sobre processos com desfecho definido.
   - [ ] Separar os percentuais de *Procedência Total* e *Procedência Parcial*.
-  - [ ] Excluir do denominador processos ainda em andamento, acordos ou extintos sem resolução de mérito, ou rotular como *Taxa Bruta Global*.
+  - [x] Excluir do denominador processos *Em andamento* e *Sem resolução de mérito*.
 - [ ] **Padronização dos Indicadores de Liminar e Urgência:**
-  - [ ] Detalhar o indicador de **Liminares**: diferenciar processos com *Pedido de liminar formulado*, *Liminar Deferida*, *Liminar Indeferida* e *Aguardando apreciação*.
+  - [ ] A base atual informa apenas `liminar` como Sim/Não; a interface explicita esse limite e não inventa os estados formulada/deferida/indeferida/aguardando.
   - [ ] Definir o critério de **Urgência**: explicitar se reflete tutela judicial requerida ou gravidade do risco clínico assistencial.
 - [ ] **Desambiguação das Métricas de Custo:**
-  - [ ] Padronizar e explicar a distinção entre:
-    - *Custo Efetivo / Liquidado na Saúde* (gasto real efetuado pelo erário);
-    - *Valor Anual Estimado do Tratamento* (posologia anual multiplicada pelo PMVG/CMED);
-    - *Valor da Causa Judicial* (fixado na petição inicial).
-  - [ ] Evitar exibição concorrente sem legenda explicativa clara.
+  - [x] Distinguir `custo_estimado` (estimativa para o erário), `valor_anual_tratamento` (estimativa baseada no PMVG) e `valor_causa_estimado` (estimativa do pedido na petição).
+  - [x] Explicitar essas diferenças nos cartões e cabeçalhos das tabelas.
 - [ ] **Sincronismo Temporal e Coerência dos Dados Sintéticos:**
-  - [ ] Corrigir anomalias temporais: garantir que a data de corte do dashboard não classifique eventos futuros como "Prazo Vencido".
+  - [x] O indicador de atraso compara o prazo limite com a data atual real; há teste cobrindo datas futuras.
   - [ ] Alinhar o parâmetro de corte de 210 salários mínimos ao ano base do recorte histórico dos dados (ou justificar o uso do valor de referência de 2026).
   - [ ] Higienizar a coerência clínica dos registros sintéticos de demonstração (ex.: paciente com diabetes recebendo prescrição correlata à sua especialidade).
 
@@ -116,18 +113,18 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 *Objetivo: Tornar as telas do gestor mais legíveis, ergonômicas e aderentes aos princípios de Gestalt.*
 
 - [ ] **Substituição de Gráficos de Rosca por Barras:**
-  - [ ] Substituir gráficos de rosca com muitas categorias (*Desfecho*, *Natureza da Ação*, *PCDT*, *Competência*) por gráficos de barras horizontais ordenadas.
-  - [ ] Para variáveis binárias (Sim/Não), priorizar cartões de número único ou barras empilhadas 100%.
+  - [x] Substituir *Desfecho*, *Natureza da Ação*, *PCDT*, *RENAME* e *Competência* por barras horizontais ordenadas.
+  - [x] Usar barras horizontais para as variáveis binárias de RENAME e PCDT.
 - [ ] **Padronização Cromática com Significado Fixo (Gestalt da Similaridade):**
-  - [ ] Fixar cores semânticas em todo o dashboard:
+  - [x] Definir cores semânticas e aplicá-las nos gráficos de competência, desfecho e liminares:
     - Justiça Estadual: Sempre Azul Escuro `#083E82`.
     - Justiça Federal: Sempre Azul Celeste `#0284C7`.
     - Deferido / Procedente: Sempre Verde `#16A34A`.
     - Indeferido / Improcedente: Sempre Carmim/Vermelho `#DC2626`.
     - Em Tramitação / Pendente: Sempre Âmbar/Laranja `#D97706`.
 - [ ] **Correção de Tipografia e Rótulos Cortados:**
-  - [ ] Corrigir quebras indevidas de rótulos numéricos (`R$ 24-`, `R$ 88,4`, `freq`, `Cu`).
-  - [ ] Substituir nomes técnicos de banco de dados nos cabeçalhos e tooltips por nomenclaturas em português claro (`faixa_etaria` $\rightarrow$ *"Faixa Etária"*, `medicamento_dcb` $\rightarrow$ *"Princípio Ativo (DCB)"*, `rename_incorporado` $\rightarrow$ *"Incorporado ao SUS"*).
+  - [x] Aumentar margens e habilitar ajuste automático dos eixos para reduzir cortes.
+  - [x] Substituir nomes técnicos nos cabeçalhos das tabelas por nomenclaturas em português claro.
 - [ ] **Equalização de Escalas e Faixas Etárias:**
   - [ ] Tratar categorias desproporcionais (ex.: fase *Sentença* ou natureza *Medicamentos* que esmagam visualmente as demais categorias) com escalas relativas, quebras ou filtros de detalhamento.
   - [ ] Padronizar intervalos de faixas etárias para evitar amplitudes desiguais que distorçam as comparações estatísticas.
@@ -169,9 +166,9 @@ Baseado na matriz de avaliação de *Wu et al. (2025)*:
 
 - [x] **Selo de Transparência Temporal:**
   - [x] Exibir no rodapé de todas as páginas:
-    - *Data e hora da última extração da base de dados* (via `mtime` do arquivo Excel);
+    - *Data e hora da última modificação do arquivo da base* (via `mtime` do Excel);
     - *Data de corte dos cálculos e regras de prazo* (configurável em `petsus/config.py` → `DATA_CORTE_CALCULOS`);
-    - *Data prevista para a próxima atualização* (configurável em `petsus/config.py` → `PROXIMA_ATUALIZACAO`).
+    - *Data prevista para a próxima atualização* (configurável em `petsus/config.py` → `PROXIMA_ATUALIZACAO`; está como “A definir” até confirmação do curador).
 - [x] **Canal de Feedback e Ouvidoria Integrado:**
   - [x] Botão flutuante fixo no canto inferior direito da tela ("💬 Reportar inconsistência"), configurável via `FEEDBACK_URL` em `petsus/config.py`.
 - [ ] **Homologação e Teste de Usabilidade (Soft Launch):**
@@ -283,4 +280,3 @@ PETSUS/
 │   └── reports/                # Gerador do relatório de acompanhamento de processos em PDF
 └── tests/                      # Bateria de testes automatizados (segurança, filtros e layout)
 ```
-
