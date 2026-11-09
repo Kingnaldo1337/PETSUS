@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, mask_cpf, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -51,6 +51,7 @@ def render_base_data(dff, base, k, participacao, part_custo, paciente_ids_sel):
         ]
         table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
         table["data_ajuizamento"] = table["data_ajuizamento"].dt.strftime("%d/%m/%Y")
+        table["cpf"] = table["cpf"].map(mask_cpf)
         table_view = table.rename(columns={
             "processo_id": "Processo", "data_ajuizamento": "Data", "paciente_id": "ID Paciente", "paciente": "Paciente", "cpf": "CPF",
             "sexo": "Sexo", "idade": "Idade", "faixa_etaria": "Faixa", "municipio": "Município", "uf": "UF", "regiao": "Região",

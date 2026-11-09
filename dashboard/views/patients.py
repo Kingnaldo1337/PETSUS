@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
+from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, mask_cpf, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 LIMITE_210_SM_2026 = 210 * 1621.0
@@ -57,7 +57,7 @@ def render_patients(dff, base, k, participacao, part_custo, paciente_ids_sel):
                 f"""
                 <div class="patient-box">
                     <div class="patient-name">{escape(str(p['paciente']))}</div>
-                    <div class="patient-sub">{escape(str(p['paciente_id']))} · CPF {escape(str(p['cpf']))} · {escape(str(p['municipio']))}/{escape(str(p['uf']))}</div>
+                    <div class="patient-sub">{escape(str(p['paciente_id']))} · CPF {escape(mask_cpf(p['cpf']))} · {escape(str(p['municipio']))}/{escape(str(p['uf']))}</div>
                     <span class="tag">{escape(str(p['sexo']))}</span>
                     <span class="tag">{escape(idade)}</span>
                     <span class="tag">{escape(str(p['faixa_etaria']))}</span>
@@ -139,6 +139,8 @@ def render_patients(dff, base, k, participacao, part_custo, paciente_ids_sel):
                 custo_total=("custo_estimado", "sum"),
                 ultimo_processo=("data_ajuizamento", "max"),
             ).sort_values("custo_total", ascending=False).head(12)
+            tab["cpf"] = tab["cpf"].map(mask_cpf)
+            tab["cpf"] = tab["cpf"].map(mask_cpf)
             tab["custo_total"] = tab["custo_total"].map(lambda x: br_money(x, compact=False))
             tab["ultimo_processo"] = tab["ultimo_processo"].dt.strftime("%d/%m/%Y")
             st.dataframe(tab.rename(columns={"paciente_id": "ID", "paciente": "Paciente", "cpf": "CPF", "processos": "Processos", "custo_total": "Custo Total", "ultimo_processo": "Último Processo"}), hide_index=True, use_container_width=True, height=310)
