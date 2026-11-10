@@ -8,6 +8,7 @@ import streamlit as st
 
 from petsus.dashboard.accessibility import speech_summary
 from petsus.dashboard.patient_ui import icon, open_patient_help, open_patient_process
+from petsus.dashboard.patient_timeline import TIMELINE_CSS, timeline_html
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 
 JUDICIAL_STAGES = (
@@ -207,14 +208,13 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     with st.expander("Ouvir o resumo do meu pedido"):
         speech_summary(f"Pedido {process['item_demandado']}. Na Justiça: {process['etapa_judicial']}. Na saúde: {process['etapa_saude']}. Próximo passo: {process['proxima_etapa']}. Responsável: {process['responsavel_etapa']}. Prazo: {date_label(process['data_limite_cumprimento'])}. {guidance}")
     with st.expander("Ver as etapas de acompanhamento"):
-        for title, stages, current in (
-            ("Na Justiça", JUDICIAL_STAGES, int(process["etapa_judicial_ordem"])),
-            ("Na saúde", HEALTH_STAGES[process["tipo_fluxo_saude"]], int(process["etapa_saude_ordem"])),
+        st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
+        for title, stages, current, status, health in (
+            ("Na Justiça", JUDICIAL_STAGES, int(process["etapa_judicial_ordem"]), str(process["etapa_judicial"]), False),
+            ("Na rede de saúde", HEALTH_STAGES[process["tipo_fluxo_saude"]], int(process["etapa_saude_ordem"]), str(process["etapa_saude"]), True),
         ):
-            st.subheader(title)
-            for index, stage in enumerate(stages, 1):
-                label = "Etapa atual" if index == current else "Etapa anterior" if index < current else "Ainda não alcançada"
-                st.write(f"{index}. {stage} — {label}")
+            st.markdown(timeline_html(title, stages, current, status, health=health,
+                                     contrast=bool(st.session_state.get("a11y_contrast", False))), unsafe_allow_html=True)
         st.caption("As etapas são marcos de acompanhamento e não medem a chance de ganhar o processo.")
     with st.expander("Como ler as datas e os prazos"):
         st.write("Os prazos são apresentados em dias corridos após a intimação. A referência dos cálculos está na faixa de privacidade no topo. Uma decisão favorável e a realização do atendimento são acontecimentos diferentes.")
