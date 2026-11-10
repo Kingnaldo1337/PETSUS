@@ -290,9 +290,11 @@ def render_portal_header(page: str, subtitle: str, metadata: dict, reference_dat
             render_display_controls()
     reference = pd.Timestamp(reference_date).strftime("%d/%m/%Y")
     st.session_state["metrics_reference"] = reference
+    if not is_manager:
+        return
     modified = metadata["modified"].strftime("%d/%m/%Y às %H:%M")
-    message = "Ambiente de gestão · Acesso restrito" if is_manager else "Você visualiza apenas os seus dados."
-    reference_label = "Referência dos cálculos" if is_manager else "Referência dos prazos"
+    message = "Ambiente de gestão · Acesso restrito"
+    reference_label = "Referência dos cálculos"
     st.markdown(
         '<div class="patient-privacy"><div class="patient-privacy-message">'
         f'{icon("lock",16)}<span>{message}</span></div>'
