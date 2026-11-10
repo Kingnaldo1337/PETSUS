@@ -83,10 +83,37 @@ def speech_summary(text: str) -> None:
         const summary = """ + payload + """;
         const status = document.getElementById('status');
         const available = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+        let selectedVoice = null;
+        let currentReading = null;
+        function refreshVoice(){
+            if(!available)return;
+            const language=v=>String(v.lang||'').toLowerCase().replace(/_/g,'-');
+            const score=v=>{
+                const name=String(v.name||'').toLowerCase();
+                return (language(v)==='pt-br'?1000:0)
+                    + (/natural|neural|premium|enhanced/.test(name)?100:0)
+                    + (/francisca/.test(name)?30:/google/.test(name)?20:/luciana/.test(name)?10:0)
+                    + (v.default?1:0);
+            };
+            const voices=window.speechSynthesis.getVoices().filter(v=>/^pt(?:-|$)/.test(language(v)));
+            selectedVoice=voices.sort((a,b)=>score(b)-score(a))[0]||null;
+        }
+        if(available){refreshVoice();window.speechSynthesis.addEventListener('voiceschanged',refreshVoice);}
         if(!available){status.textContent='Leitura por voz indisponível neste navegador.';document.getElementById('read').disabled=true;}
-        document.getElementById('read').onclick=()=>{if(!available)return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(summary);u.lang='pt-BR';u.rate=.9;u.onend=()=>status.textContent='Leitura concluída.';u.onerror=()=>status.textContent='Não foi possível reproduzir. O resumo está disponível em texto.';window.speechSynthesis.speak(u);status.textContent='Lendo o resumo.';};
-        document.getElementById('stop').onclick=()=>{if(available)window.speechSynthesis.cancel();status.textContent='Leitura interrompida.';};
-        window.addEventListener('pagehide',()=>{if(available)window.speechSynthesis.cancel();});
+        document.getElementById('read').onclick=()=>{
+            if(!available)return;
+            currentReading=null;window.speechSynthesis.cancel();refreshVoice();
+            const u=new SpeechSynthesisUtterance(summary);currentReading=u;
+            u.lang=selectedVoice?selectedVoice.lang:'pt-BR';
+            if(selectedVoice)u.voice=selectedVoice;
+            u.rate=.95;u.pitch=1;u.volume=1;
+            u.onend=()=>{if(currentReading!==u)return;currentReading=null;status.textContent='Leitura concluída.';};
+            u.onerror=()=>{if(currentReading!==u)return;currentReading=null;status.textContent='Não foi possível reproduzir. Tente novamente ou use outro navegador.';};
+            status.textContent=selectedVoice?'Lendo com a voz '+selectedVoice.name+'.':'Lendo com a voz em português do navegador.';
+            window.speechSynthesis.speak(u);
+        };
+        document.getElementById('stop').onclick=()=>{currentReading=null;if(available)window.speechSynthesis.cancel();status.textContent='Leitura interrompida.';};
+        window.addEventListener('pagehide',()=>{currentReading=null;if(available){window.speechSynthesis.removeEventListener('voiceschanged',refreshVoice);window.speechSynthesis.cancel();}});
         </script>""",
         height=100,
     )
