@@ -6,7 +6,7 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
-from petsus.dashboard.patient_accessibility import patient_speech_summary as speech_summary
+from petsus.dashboard.accessibility import speech_summary
 from petsus.dashboard.patient_ui import icon, open_patient_help, open_patient_process
 from petsus.dashboard.patient_timeline import TIMELINE_CSS, timeline_html
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
@@ -180,7 +180,7 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     duplicate_ids = set(rows.loc[repeated_items, "processo_id"].astype(str))
     selected = st.selectbox(
         "Processo que deseja acompanhar", process_ids,
-        format_func=lambda value: f"{labels[value]} · {value}" if value in duplicate_ids else labels[value], key="patient_process",
+        format_func=lambda value: f"{labels[value]} · {value}" if value in duplicate_ids else labels[value], key="patient_process", label_visibility="collapsed",
     )
     process = rows[rows["processo_id"].astype(str) == selected].iloc[0]
     long_item = f'{escape(str(process["item_demandado"]))} · ' if len(str(process["item_demandado"])) > 45 else ""
@@ -224,7 +224,7 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
             st.markdown('<div class="patient-discreet-note">Resumo em PDF · Guarde ou compartilhe com quem acompanha seu processo.</div>', unsafe_allow_html=True)
     with st.container(border=True):
         st.subheader("Ouvir o resumo do meu processo")
-        speech_summary(f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. Na Justiça: {court_status(process)[2]} Na saúde: {health_status(process)[2]} O que fazer agora: {simple_action(process)}. Prazo registrado para cumprir a decisão: {date_label(process['data_limite_cumprimento'])}. Esse prazo não confirma uma data de atendimento. Última atualização: {date_label(process['ultima_movimentacao_data'])}. {guidance}")
+        speech_summary(f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. Na Justiça: {court_status(process)[2]} Na saúde: {health_status(process)[2]} O que fazer agora: {simple_action(process)}. {guidance}")
     with st.container(border=True):
         st.subheader("Etapas de acompanhamento")
         st.write("O destaque mostra onde seu processo está. As outras etapas ajudam a entender o caminho.")

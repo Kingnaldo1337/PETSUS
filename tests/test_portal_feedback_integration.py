@@ -45,12 +45,6 @@ def test_patient_portal_has_only_own_processes_and_no_analytics(portal_source):
     app = authenticated_app(user)
     assert not app.exception
     assert navigation_labels(app) == navigation_for(False)[0]
-    assert app.checkbox(key="patient_reading_mode")
-    app.checkbox(key="patient_reading_mode").check().run()
-    app.checkbox(key="patient_reduce_motion").check().run()
-    assert not app.exception
-    assert app.session_state["patient_reading_mode"] is True
-    assert app.session_state["patient_reduce_motion"] is True
     assert not app.sidebar.radio
     assert not app.multiselect
     assert not app.date_input
@@ -81,7 +75,6 @@ def test_every_manager_page_renders_and_empty_results_are_handled(portal_source)
     user = store.create_user("98765432100", "senha-teste-segura", "Gestor de teste", "gestor", must_change_password=False)
     app = authenticated_app(user)
     assert not app.exception
-    assert not any(item.key in ("patient_reading_mode", "patient_reduce_motion") for item in app.checkbox)
     for page in navigation_for(True)[0][1:]:
         navigate(app, page)
         assert not app.exception, page

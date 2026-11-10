@@ -337,9 +337,6 @@ with st.sidebar:
         logout()
 
 render_portal_header(page_label, subtitle_for(pagina, auth_user.is_manager), metadata, REFERENCE_DATE, is_manager=auth_user.is_manager)
-if not auth_user.is_manager:
-    from petsus.dashboard.patient_accessibility import render_patient_accessibility
-    render_patient_accessibility()
 visit_token = st.session_state.setdefault("usage_visit_token", secrets.token_urlsafe(24))
 governance.record_page_view(auth_user.role, pagina, visit_token)
 
