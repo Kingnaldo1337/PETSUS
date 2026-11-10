@@ -199,7 +199,7 @@ def render_internal_management(store: AuthStore) -> None:
     session = st.session_state.get("auth_user", {})
     if (user is None or not user.is_manager or user.must_change_password
             or not isinstance(session, dict) or session.get("session_version") != user.session_version
-            or (mfa_required() and st.session_state.get("auth_mfa_verified") is not True)):
+            or (store.requires_second_factor(user) and st.session_state.get("auth_mfa_verified") is not True)):
         st.error("Esta área exige uma sessão válida de gestor. Entre novamente para continuar.")
         return
     st.info("Área restrita a gestores. Revise periodicamente as contas e revogue acessos que não sejam mais necessários.")

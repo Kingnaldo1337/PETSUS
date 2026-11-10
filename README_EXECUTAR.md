@@ -165,6 +165,24 @@ Salve e entre normalmente com o CPF e a senha atual. O reparo exige senha válid
 
 Depois de conseguir entrar, remova a chave `PETSUS_RECUPERAR_EMAIL_GESTOR` ou altere seu valor para `"false"`. Não desative o segundo fator nem apague o banco para recuperar a conta. Essa função exige que o código atualizado esteja publicado no app.
 
+### Duas contas para testes sem código de e-mail
+
+Para testar a base demonstrativa no Streamlit Cloud, acrescente no início dos Secrets privados (fora de seções TOML) as chaves abaixo e substitua as senhas. Preserve as configurações de SMTP e `PETSUS_REQUIRE_MFA` das contas normais.
+
+```toml
+PETSUS_TEST_MODE = "true"
+PETSUS_TEST_GESTOR_CPF = "11111111111"
+PETSUS_TEST_GESTOR_SENHA = "DEFINA_UMA_SENHA_FORTE"
+PETSUS_TEST_PACIENTE_CPF = "22222222222"
+PETSUS_TEST_PACIENTE_SENHA = "DEFINA_OUTRA_SENHA_FORTE"
+```
+
+Ao abrir a tela de login, o aplicativo cria as contas **Gestor de teste** e **Paciente de teste**. Senhas têm pelo menos oito caracteres; prefira senhas longas e exclusivas. O paciente é vinculado automaticamente ao primeiro paciente da base que ainda não tenha conta. Para escolher outro registro na criação, informe `PETSUS_TEST_PACIENTE_ID` com um código livre presente na base.
+
+Somente contas marcadas no banco como teste e correspondentes aos CPFs configurados entram sem e-mail. A senha, o perfil e o isolamento dos dados continuam sendo verificados. Contas normais nunca são convertidas em contas de teste; colisões de CPF ou vínculo são recusadas. O provisionamento não altera senhas, não reativa contas revogadas e não muda vínculos existentes. Para alterar a senha de uma conta já criada, use Gestão interna; mudar somente o Secret de senha não redefine a conta.
+
+Depois de testar, defina `PETSUS_TEST_MODE = "false"`. As duas contas de teste deixam de autenticar e suas sessões são invalidadas no próximo acesso. Este recurso dá acesso de gestor aos portadores da senha de teste enquanto estiver ativo: use apenas no ambiente demonstrativo e mantenha os Secrets privados.
+
 RECUPERAÇÃO DE SENHA
 
 Na tela de autenticação, use a aba "Recuperar senha". O sistema confirma CPF, e-mail cadastrado e data de nascimento, envia um código de seis dígitos ao e-mail e permite definir uma nova senha. A data de nascimento é armazenada como hash. Contas criadas antes desta funcionalidade precisam ter essa informação atualizada antes de usar a recuperação automática.

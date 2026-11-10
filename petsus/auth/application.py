@@ -114,6 +114,8 @@ class AuthStore:
                 conn.execute("UPDATE users SET must_change_password = 1 WHERE role = 'gestor'")
             if "session_version" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1")
+            if "is_test_account" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN is_test_account INTEGER NOT NULL DEFAULT 0")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique "
                 "ON users(email) WHERE email IS NOT NULL"
@@ -221,6 +223,8 @@ class AuthStore:
                 (lookup,),
             ).fetchone()
             valid = row is not None and self._verify_password(password, row["password_hash"])
+            if valid and row["is_test_account"] and not self._test_account_enabled(row):
+                valid = False
             subject_id = int(row["id"]) if row is not None else None
             self._audit(conn, "password_check", subject_id=subject_id, outcome="success" if valid else "failed")
             if not valid:
@@ -233,6 +237,20 @@ class AuthStore:
             row = self._restore_legacy_manager_email(conn, row, normalized)
         return self._row_to_user(row)
 
+    def _test_account_enabled(self, row: sqlite3.Row) -> bool:
+        if not row["is_test_account"] or setting("PETSUS_TEST_MODE").lower() not in {"true", "1", "yes", "sim"}:
+            return False
+        prefix = "GESTOR" if row["role"] == ROLE_MANAGER else "PACIENTE"
+        cpf = self.normalize_cpf(setting(f"PETSUS_TEST_{prefix}_CPF"))
+        return len(cpf) == 11 and hmac.compare_digest(str(row["cpf_lookup"]), self._lookup_key(cpf))
+
+    def requires_second_factor(self, user: AuthUser) -> bool:
+        if not mfa_required():
+            return False
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ? AND active = 1", (user.id,)).fetchone()
+        return not (row is not None and int(row["session_version"]) == user.session_version and self._test_account_enabled(row))
+
     def _restore_legacy_manager_email(self, conn: sqlite3.Connection, row: sqlite3.Row, cpf: str) -> sqlite3.Row:
         """Reparo opt-in após senha válida, restrito ao único gestor sem e-mail."""
         if (row["role"] != ROLE_MANAGER or is_valid_email(str(row["email"] or ""))
@@ -242,7 +260,7 @@ class AuthStore:
         email = normalize_email(setting("PETSUS_GESTOR_EMAIL"))
         if len(configured_cpf) != 11 or configured_cpf != cpf or not is_valid_email(email):
             return row
-        managers = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1", (ROLE_MANAGER,)).fetchone()[0]
+        managers = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1 AND is_test_account = 0", (ROLE_MANAGER,)).fetchone()[0]
         if managers != 1 or conn.execute("SELECT 1 FROM users WHERE email = ? AND id != ?", (email, row["id"])).fetchone():
             return row
         conn.execute("UPDATE users SET email = ?, session_version = session_version + 1 WHERE id = ?", (email, row["id"]))
@@ -256,6 +274,8 @@ class AuthStore:
                 "SELECT * FROM users WHERE id = ? AND active = 1",
                 (int(user_id),),
             ).fetchone()
+        if row is not None and row["is_test_account"] and not self._test_account_enabled(row):
+            return None
         return self._row_to_user(row) if row is not None else None
 
     @staticmethod
@@ -353,11 +373,11 @@ class AuthStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             self._require_active_manager(conn, acting_manager_id)
-            target = conn.execute("SELECT role, active FROM users WHERE id = ?", (int(user_id),)).fetchone()
+            target = conn.execute("SELECT role, active, is_test_account FROM users WHERE id = ?", (int(user_id),)).fetchone()
             if target is None:
                 raise ValueError("Conta não encontrada.")
-            if not active and target["role"] == ROLE_MANAGER and target["active"]:
-                count = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1", (ROLE_MANAGER,)).fetchone()[0]
+            if not active and target["role"] == ROLE_MANAGER and target["active"] and not target["is_test_account"]:
+                count = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1 AND is_test_account = 0", (ROLE_MANAGER,)).fetchone()[0]
                 if count <= 1:
                     raise ValueError("O último gestor ativo não pode ter o acesso revogado.")
             conn.execute("UPDATE users SET active = ?, session_version = session_version + 1 WHERE id = ?", (int(active), int(user_id)))
@@ -385,6 +405,7 @@ class AuthStore:
         *,
         must_change_password: bool | None = None,
         acting_manager_id: int | None = None,
+        is_test_account: bool = False,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         if len(normalized) != 11:
@@ -394,6 +415,7 @@ class AuthStore:
         return self.create_user_with_password_hash(
             normalized, self._hash_password(password), name, role, patient_id, email, birth_date,
             must_change_password=must_change_password, acting_manager_id=acting_manager_id,
+            is_test_account=is_test_account,
         )
 
     def create_user_with_password_hash(
@@ -408,6 +430,7 @@ class AuthStore:
         *,
         must_change_password: bool | None = None,
         acting_manager_id: int | None = None,
+        is_test_account: bool = False,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         normalized_email = normalize_email(email or "") or None
@@ -426,6 +449,11 @@ class AuthStore:
             raise ValueError("Informe um e-mail válido.")
         if role == ROLE_MANAGER:
             patient_id = None
+        if is_test_account:
+            prefix = "GESTOR" if role == ROLE_MANAGER else "PACIENTE"
+            configured_cpf = self.normalize_cpf(setting(f"PETSUS_TEST_{prefix}_CPF"))
+            if setting("PETSUS_TEST_MODE").lower() not in {"true", "1", "yes", "sim"} or configured_cpf != normalized:
+                raise ValueError("A conta de teste precisa estar autorizada nas configurações privadas.")
 
         try:
             with self._connect() as conn:
@@ -433,8 +461,8 @@ class AuthStore:
                     self._require_active_manager(conn, acting_manager_id)
                 cursor = conn.execute(
                     """
-                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, birth_date_lookup, active, created_at, must_change_password)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, birth_date_lookup, active, created_at, must_change_password, is_test_account)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
                         self._lookup_key(normalized),
@@ -447,6 +475,7 @@ class AuthStore:
                         self._birth_date_key(normalized_birth_date) if normalized_birth_date else None,
                         datetime.now(timezone.utc).isoformat(),
                         int(must_change_password),
+                        int(is_test_account),
                     ),
                 )
                 user_id = int(cursor.lastrowid)
@@ -605,14 +634,14 @@ class AuthStore:
             if acting_manager is None:
                 raise ValueError("O gestor responsável pela operação não está ativo.")
             account = conn.execute(
-                "SELECT role FROM users WHERE id = ? AND role = ? AND active = 1",
+                "SELECT role, is_test_account FROM users WHERE id = ? AND role = ? AND active = 1",
                 (int(user_id), expected_role),
             ).fetchone()
             if account is None:
                 raise ValueError("Conta ativa não encontrada para o perfil informado.")
-            if expected_role == ROLE_MANAGER:
+            if expected_role == ROLE_MANAGER and not account["is_test_account"]:
                 manager_count = conn.execute(
-                    "SELECT COUNT(*) FROM users WHERE role = ? AND active = 1",
+                    "SELECT COUNT(*) FROM users WHERE role = ? AND active = 1 AND is_test_account = 0",
                     (ROLE_MANAGER,),
                 ).fetchone()[0]
                 if int(manager_count) <= 1:
@@ -631,7 +660,7 @@ class AuthStore:
 
     def has_manager(self) -> bool:
         with self._connect() as conn:
-            row = conn.execute("SELECT 1 FROM users WHERE role = 'gestor' AND active = 1 LIMIT 1").fetchone()
+            row = conn.execute("SELECT 1 FROM users WHERE role = 'gestor' AND active = 1 AND is_test_account = 0 LIMIT 1").fetchone()
         return row is not None
 
     def bootstrap_manager_from_env(self) -> None:
@@ -698,7 +727,7 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
     current = st.session_state.get("auth_user")
     if isinstance(current, dict) and current.get("id"):
         active_user = store.get_active_user(int(current["id"]))
-        assurance_ok = not mfa_required() or st.session_state.get("auth_mfa_verified") is True
+        assurance_ok = active_user is not None and (not store.requires_second_factor(active_user) or st.session_state.get("auth_mfa_verified") is True)
         if active_user is not None and current.get("session_version") == active_user.session_version and assurance_ok:
             st.session_state["auth_user"] = active_user.__dict__
             if active_user.must_change_password:
@@ -711,9 +740,20 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         st.session_state.pop("auth_mfa_verified", None)
 
     store.bootstrap_manager_from_env()
+    from petsus.auth.testing import bootstrap_test_accounts, test_mode_enabled
+    test_setup_error = None
+    if test_mode_enabled():
+        try:
+            bootstrap_test_accounts(store, base)
+        except ValueError as exc:
+            test_setup_error = str(exc)
 
     render_auth_shell()
     render_auth_intro()
+    if test_mode_enabled():
+        st.info("Modo de teste ativo: somente as duas contas de teste configuradas entram sem código de e-mail.")
+        if test_setup_error:
+            st.error(test_setup_error)
 
     with st.container(key="auth_panel"):
         login_tab, register_tab = st.tabs(["Entrar", "Criar conta"])
@@ -944,7 +984,7 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
         if recovery_requested or recovery_link == "1":
             recovery_dialog()
 
-        if not store.has_manager():
+        if not store.has_manager() and not test_mode_enabled():
             st.warning(
                 "Ainda não existe conta de gestor. Crie a primeira conta pelo script `criar_gestor.py` "
                 "ou configure PETSUS_GESTOR_CPF e PETSUS_GESTOR_SENHA no ambiente."
@@ -1030,7 +1070,7 @@ def _render_login(store: AuthStore) -> None:
     if user is None:
         st.error("CPF ou senha inválidos, ou limite de tentativas atingido. Após tentativas repetidas, aguarde 15 minutos.")
         return
-    if not mfa_required():
+    if not store.requires_second_factor(user):
         store.record_auth_event(user.id, "login")
         st.session_state["auth_user"] = user.__dict__
         st.session_state["auth_mfa_verified"] = False
