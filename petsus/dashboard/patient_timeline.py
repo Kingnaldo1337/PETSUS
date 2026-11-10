@@ -16,8 +16,8 @@ TIMELINE_CSS = """
 .care-track-steps {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;list-style:none!important;margin:0!important;padding:0!important;}
 .care-track-step {display:flex;align-items:flex-start;gap:.75rem;padding:.85rem;margin:0!important;border:1px solid var(--track-line);border-radius:12px;background:var(--track-bg);min-width:0;}
 .care-track-node {display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border-radius:50%;border:1px solid var(--track-line);color:var(--track-muted);font-weight:700;font-size:.85rem;}
-.care-track-step strong {display:block;font-size:.88rem;line-height:1.5;overflow-wrap:anywhere;color:var(--track-ink);}
-.care-track-step small {display:block;font-size:.76rem;color:var(--track-muted);margin-top:.2rem;}
+.care-track-step strong {display:block;font-size:1rem;line-height:1.5;overflow-wrap:anywhere;color:var(--track-ink);}
+.care-track-step small {display:block;font-size:.9rem;color:var(--track-muted);margin-top:.2rem;}
 .care-track-step.past .care-track-node {background:var(--track-soft);color:var(--track-accent);}
 .care-track-step.current {border:2px solid var(--track-accent);background:var(--track-soft);}
 .care-track-step.current .care-track-node {background:var(--track-accent);color:#FFF;border-color:var(--track-accent);}
@@ -29,7 +29,7 @@ TIMELINE_CSS = """
 """
 
 
-def timeline_html(title: str, stages: tuple[str, ...], current: int, status: str, *, health: bool = False, contrast: bool = False) -> str:
+def timeline_html(title: str, stages: tuple[str, ...], current: int, status: str, *, health: bool = False, contrast: bool = False, compact: bool = False) -> str:
     """Render the recorded milestone; zero means the care track has not started."""
     active = current if 1 <= current <= len(stages) else 0
     focus = stages[active - 1] if active else status
@@ -40,6 +40,8 @@ def timeline_html(title: str, stages: tuple[str, ...], current: int, status: str
         '<ol class="care-track-steps">',
     ]
     for index, stage in enumerate(stages, 1):
+        if compact and index not in ({max(1, active - 1), active, active + 1} if active else {1}):
+            continue
         state = "current" if index == active else "past" if index < active else "future"
         label = "Etapa atual" if state == "current" else "Etapa anterior" if state == "past" else "Ainda não alcançada"
         marker = icon("check", 17) if state == "past" else str(index)
