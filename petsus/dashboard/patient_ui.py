@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from html import escape
-from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
 
-from petsus.dashboard.navigation import PAGE_ICONS
+from petsus.dashboard.navigation import MATERIAL_ICONS, PAGE_ICONS, navigation_key
 from petsus.dashboard.motion import MOTION_CSS, header_art
 
 
@@ -90,12 +89,6 @@ def render_portal_styles(is_manager: bool = False) -> None:
     .patient-account-name {font-size:.85rem;font-weight:650;color:#EDF5FF;overflow-wrap:anywhere;}
     .patient-account-caption {font-size:.72rem;color:#A9C1D8;}
     .patient-sidebar-label {font-size:.66rem;letter-spacing:.14em;font-weight:700;color:#9FBDD8;margin:.55rem 0 .35rem;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label {border:1px solid transparent;border-radius:9px;padding:.6rem .55rem;margin:.08rem 0;transition:background .15s ease;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label p {font-size:.84rem;font-weight:500;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {background:#FFFFFF0B;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {background:linear-gradient(90deg,#208EA42E,#2586AE18);border-color:#57BBD132;box-shadow:inset 3px 0 #39BBD2;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {font-weight:700;color:#ECFAFF;}
-    .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:focus-visible) {outline:2px solid #72DFEB;outline-offset:2px;}
     .patient-sidebar-note {font-size:.73rem;line-height:1.5;color:#A9C1D8;border-top:1px solid #FFFFFF1C;padding-top:1rem;margin-top:.7rem;}
     .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] .st-key-logout_button {margin-top:1rem;}
     .stApp:has(.patient-portal-marker) [data-testid="stSidebar"] .st-key-logout_button button {background:transparent!important;border-color:#FFFFFF28!important;min-height:40px;font-weight:500;}
@@ -248,27 +241,32 @@ def render_portal_sidebar(user) -> None:
 
 
 def render_portal_navigation(page_labels: list[str]) -> str:
-    """Menu com ícones; mantém o controle nativo de teclado e seleção."""
+    """Navegação com botões e ícones nativos, sem máscaras CSS ou radios ocultos."""
     if st.session_state.get("dashboard_navigation") not in page_labels:
-        st.session_state.pop("dashboard_navigation", None)
-    scope = '.stApp [data-testid="stSidebar"] .st-key-dashboard_navigation'
+        st.session_state["dashboard_navigation"] = page_labels[0]
+    scope = '.stApp [data-testid="stSidebar"] .st-key-portal_navigation'
     css = f"""
-    {scope} [role="radiogroup"] {{width:100%;}}
-    {scope} [data-testid="stWidgetLabel"],{scope} [data-testid="stWidgetLabel"]::before {{display:none!important;}}
-    {scope} label:has(input[type="radio"]) {{display:flex!important;align-items:center;gap:.7rem;width:100%;box-sizing:border-box;cursor:pointer;min-height:42px;}}
-    /* Oculta somente o desenho das bolinhas, preservando o input acessível. */
-    {scope} label[data-baseweb="radio"] > div:first-child,
-    {scope} [data-testid="stRadioOption"] > div > div:first-child > div:first-child {{display:none!important;}}
-    {scope} label:has(input[type="radio"])::before {{content:"";display:block;flex:0 0 19px;width:19px;height:19px;background-color:currentColor;mask-size:contain;mask-repeat:no-repeat;mask-position:center;-webkit-mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;}}
-    {scope} label:has(input:checked)::before {{background-color:#72DFEB;}}
-    {scope} label:has(input:focus-visible),{scope} label[data-focus-visible] {{outline:2px solid #72DFEB;outline-offset:2px;}}
+    {scope} [data-testid="stVerticalBlock"] {{gap:.25rem;}}
+    {scope} button {{display:flex;justify-content:flex-start;gap:.7rem;min-height:42px;width:100%;text-align:left;border:1px solid transparent!important;border-radius:9px;background:transparent!important;color:#D6E8F8!important;padding:.6rem .7rem;box-shadow:none;font-family:inherit;}}
+    {scope} button p {{font-size:.82rem;font-weight:550;color:inherit!important;text-align:left;}}
+    {scope} button [data-testid="stMarkdownContainer"] {{text-align:left;}}
+    {scope} button:hover {{background:#FFFFFF0D!important;border-color:#FFFFFF1A!important;}}
+    {scope} button[kind="primary"] {{background:linear-gradient(90deg,#208EA42E,#2586AE18)!important;border-color:#57BBD140!important;box-shadow:inset 3px 0 #39BBD2;color:#ECFAFF!important;}}
+    {scope} button[kind="primary"] p {{font-weight:750;}}
+    {scope} button:focus-visible {{outline:2px solid #72DFEB;outline-offset:2px;}}
     """
-    for index, label in enumerate(page_labels, 1):
-        svg = icon(PAGE_ICONS.get(label, "document"), 20).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ', 1)
-        source = f'url("data:image/svg+xml,{quote(svg, safe="")}")'
-        css += f'{scope} [role="radiogroup"] > label:nth-of-type({index})::before {{mask-image:{source};-webkit-mask-image:{source};}}'
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    return st.radio("Navegação", page_labels, label_visibility="collapsed", key="dashboard_navigation")
+    with st.container(key="portal_navigation"):
+        for label in page_labels:
+            symbol = MATERIAL_ICONS[PAGE_ICONS.get(label, "document")]
+            st.button(label, icon=f":material/{symbol}:", key=navigation_key(label),
+                type="primary" if st.session_state["dashboard_navigation"] == label else "secondary",
+                use_container_width=True, on_click=_select_portal_page, args=(label,))
+    return st.session_state["dashboard_navigation"]
+
+
+def _select_portal_page(page: str) -> None:
+    st.session_state["dashboard_navigation"] = page
 
 
 def render_portal_header(page: str, subtitle: str, metadata: dict, reference_date, is_manager: bool = False) -> None:
@@ -301,8 +299,6 @@ def _manager_styles() -> str:
     css = """
     .manager-portal-marker {display:none;}
     .stApp:has(.manager-portal-marker) [data-testid="stMain"] .block-container {max-width:1540px!important;}
-    .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label {padding:.38rem .5rem;margin:.02rem 0;border-radius:8px;}
-    .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] [data-testid="stRadio"] label p {font-size:.79rem;}
     .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {font-size:.75rem;line-height:1.5;}
     .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] [data-testid="stExpander"] details {background:#FFFFFF07;border:1px solid #FFFFFF26;border-radius:9px;box-shadow:none;}
     .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] [data-testid="stExpander"] summary {background:#FFFFFF07!important;border-radius:8px!important;padding:.6rem .65rem;}

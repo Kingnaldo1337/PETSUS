@@ -7,6 +7,8 @@ import json
 import streamlit as st
 import streamlit.components.v1 as components
 
+from petsus.dashboard.widget_styles import widget_styles
+
 
 def render_accessibility_controls(show_sidebar: bool = True) -> None:
     if show_sidebar:
@@ -67,6 +69,7 @@ def render_accessibility_controls(show_sidebar: bool = True) -> None:
         a{color:#83D6FF!important;text-decoration:underline;}
         [data-testid="stMain"] .patient-status a,[data-testid="stMain"] .patient-next a{color:#83D6FF!important;}
         """
+    css += widget_styles(contrast)
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 

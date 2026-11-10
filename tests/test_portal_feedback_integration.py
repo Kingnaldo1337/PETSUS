@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from auth import AuthStore
 from petsus import config
-from petsus.dashboard.navigation import navigation_for
+from petsus.dashboard.navigation import navigation_for, navigation_key
 
 
 @pytest.fixture
@@ -30,21 +30,29 @@ def authenticated_app(user):
     return app.run()
 
 
+def navigate(app, page):
+    return app.sidebar.button(key=navigation_key(page)).click().run()
+
+
+def navigation_labels(app):
+    return [button.label for button in app.sidebar.button if str(button.key).startswith("nav_")]
+
+
 def test_patient_portal_has_only_own_processes_and_no_analytics(portal_source):
     source, store = portal_source
     patient_id = str(source.iloc[0]["paciente_id"])
     user = store.create_user("12345678900", "senha-teste-segura", "Paciente de teste", "usuario", patient_id, email="patient@example.com")
     app = authenticated_app(user)
     assert not app.exception
-    navigation = app.sidebar.radio[0]
-    assert navigation.options == navigation_for(False)[0]
+    assert navigation_labels(app) == navigation_for(False)[0]
+    assert not app.sidebar.radio
     assert not app.multiselect
     assert not app.date_input
     assert not app.get("plotly_chart")
     assert len(app.selectbox[0].options) == source[source["paciente_id"].astype(str).eq(patient_id)]["processo_id"].nunique()
     assert not any("Taxa de Procedência" in item.value for item in app.markdown)
-    for page in navigation.options[1:]:
-        app.sidebar.radio[0].set_value(page).run()
+    for page in navigation_for(False)[0][1:]:
+        navigate(app, page)
         assert not app.exception, page
         assert not app.get("plotly_chart"), page
     assert app.text_area
@@ -54,7 +62,7 @@ def test_feedback_is_registered_and_patient_can_track_own_report(portal_source):
     source, store = portal_source
     user = store.create_user("12345678900", "senha-teste-segura", "Paciente de teste", "usuario", str(source.iloc[0]["paciente_id"]), email="patient@example.com")
     app = authenticated_app(user)
-    app.sidebar.radio[0].set_value("Ajuda e contato").run()
+    navigate(app, "Ajuda e contato")
     app.text_area[0].input("O prazo apresentado precisa ser conferido pela equipe.")
     next(button for button in app.button if button.label == "Registrar relato").click().run()
     assert not app.exception
@@ -68,9 +76,9 @@ def test_every_manager_page_renders_and_empty_results_are_handled(portal_source)
     app = authenticated_app(user)
     assert not app.exception
     for page in navigation_for(True)[0][1:]:
-        app.sidebar.radio[0].set_value(page).run()
+        navigate(app, page)
         assert not app.exception, page
-    app.sidebar.radio[0].set_value("Visão Geral").run()
+    navigate(app, "Visão Geral")
     app.text_input(key="filter_search").input("nenhum-resultado-inexistente").run()
     assert not app.exception
     assert any("Nenhum registro encontrado" in item.value for item in app.warning)
@@ -81,7 +89,8 @@ def test_every_manager_page_renders_and_empty_results_are_handled(portal_source)
     app.button(key="patient_contrast").click().run()
     assert not app.exception
     assert app.session_state["a11y_contrast"] is True
-    assert app.sidebar.radio[0].options == navigation_for(True)[0]
+    assert navigation_labels(app) == navigation_for(True)[0]
+    assert not app.sidebar.radio
 
 
 def test_patient_missing_from_source_can_still_logout_and_report(portal_source):
@@ -91,7 +100,7 @@ def test_patient_missing_from_source_can_still_logout_and_report(portal_source):
     assert not app.exception
     assert any("Não foram encontrados dados" in item.value for item in app.error)
     assert any(button.label == "Sair" for button in app.sidebar.button)
-    app.sidebar.radio[0].set_value("Ajuda e contato").run()
+    navigate(app, "Ajuda e contato")
     assert not app.exception
     assert app.text_area
     assert app.selectbox[1].options == ["Sem processo específico"]
@@ -104,7 +113,7 @@ def test_report_shortcut_opens_help_with_the_selected_patient_process(portal_sou
     selected_process = app.selectbox(key="patient_process").value
     app.button(key="patient_report_button").click().run()
     assert not app.exception
-    assert app.sidebar.radio[0].value == "Ajuda e contato"
+    assert app.session_state["dashboard_navigation"] == "Ajuda e contato"
     assert app.selectbox(key="feedback_process").value == selected_process
 
 
@@ -121,4 +130,4 @@ def test_patient_header_accessibility_controls_change_preferences(portal_source)
     app.button(key="patient_text_small").click().run()
     assert not app.exception
     assert app.session_state["a11y_large_text"] is False
-    assert app.sidebar.radio[0].value == "Meu acompanhamento"
+    assert app.session_state["dashboard_navigation"] == "Meu acompanhamento"

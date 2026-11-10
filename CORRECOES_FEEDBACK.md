@@ -139,3 +139,9 @@ Validação funcional mais recente: 78 testes aprovados. A revisão visual em na
 As páginas permanecem separadas em `dashboard/views/`, incluindo prevenção e componentes compartilhados. A implementação de autenticação está centralizada em `petsus/auth/application.py`; `auth.py` preserva os imports legados. A carga dos dados fica em `petsus/dashboard/app_services.py`, usando as regras de enriquecimento e a data de referência na chave do cache. APIs de exportação e cores usadas pelos módulos anteriores foram preservadas.
 
 Validação após resolver os conflitos de integração: 87 testes aprovados, incluindo autenticação, navegação de todas as telas, métricas, privacidade, exportações e compatibilidade dos imports.
+
+## Compatibilidade visual no Streamlit Cloud
+
+Corrigida uma seção `[client]` duplicada que tornava o arquivo TOML inválido e impedia a aplicação consistente do tema. A versão do Streamlit está fixada em 1.62.0, igual à usada na validação. A navegação usa botões com ícones nativos em vez de radios e máscaras CSS. Login e perfis compartilham cores de campos, rótulos e placeholders, respeitando o alto contraste. As fontes têm alternativas locais, sem depender de importação de fontes externas.
+
+Validação funcional: 98 testes aprovados, com verificação da configuração TOML e navegação por todas as páginas dos dois perfis. A conferência visual no navegador permanece pendente por indisponibilidade de navegador conectado.

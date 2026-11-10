@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+import unicodedata
+
 MANAGER_PAGES = (
     "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
     "Custos", "Prevenção", "Geografia", "Pacientes", "Base de Dados", "Gestão interna", "Ajuda e feedback",
@@ -19,6 +22,18 @@ PAGE_ICONS = {
     "Meu acompanhamento": "clock", "Meus processos": "document",
     "Meus documentos": "download", "Ajuda e contato": "chat",
 }
+
+MATERIAL_ICONS = {
+    "chart": "dashboard", "clock": "pending_actions", "document": "description",
+    "medical": "medication", "scales": "balance", "wallet": "payments",
+    "check": "verified_user", "location": "location_on", "users": "groups",
+    "lock": "admin_panel_settings", "chat": "help_outline", "download": "download",
+}
+
+
+def navigation_key(page: str) -> str:
+    normalized = unicodedata.normalize("NFKD", page).encode("ascii", "ignore").decode("ascii").lower()
+    return "nav_" + re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
 
 PAGE_SUBTITLES = {
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",

@@ -37,8 +37,8 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        html, body, .stApp { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; }
+        .stApp input,.stApp textarea,.stApp button {font-family:inherit;}
         .stApp, [data-testid="stAppViewContainer"], .main { background: #F4F7FB; color: #0B2459; }
         [data-testid="stHeader"] { background: transparent; }
         .block-container { max-width: 1700px; padding-top: 1.05rem; padding-bottom: 1.2rem; padding-left: 1.2rem; padding-right: 1.2rem; container-type: inline-size; container-name: dashboard; }
@@ -112,7 +112,6 @@ st.markdown(
         [data-testid="stSidebar"] div[data-baseweb="tag"] { background: #DDEBFF !important; }
         [data-testid="stSidebar"] div[data-baseweb="tag"] span { color: #0B2459 !important; }
         [data-testid="stSidebar"] .stDateInput input { color: #0B2459 !important; -webkit-text-fill-color: #0B2459 !important; }
-        [data-baseweb="popover"] [role="option"], [data-baseweb="popover"] [role="option"] * { color: #0B2459 !important; }
         [data-testid="stSidebar"] .st-key-logout_button button {
             background: rgba(255, 255, 255, .14) !important;
             border: 1px solid rgba(255, 255, 255, .55) !important;
