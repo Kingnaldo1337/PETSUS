@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from petsus.auth.email import send_verification_code as _send_verification_email
-from petsus.auth.email import mfa_required, smtp_configured
+from petsus.auth.email import mfa_required, smtp_configured, setting
 from petsus.auth.models import AuthUser, ROLE_MANAGER, ROLE_USER
 from petsus.auth.registration import (
     OTP_MAX_ATTEMPTS,
@@ -230,7 +230,25 @@ class AuthStore:
                 )
                 return None
             conn.execute("DELETE FROM login_failures WHERE account_key = ?", (lookup,))
+            row = self._restore_legacy_manager_email(conn, row, normalized)
         return self._row_to_user(row)
+
+    def _restore_legacy_manager_email(self, conn: sqlite3.Connection, row: sqlite3.Row, cpf: str) -> sqlite3.Row:
+        """Reparo opt-in após senha válida, restrito ao único gestor sem e-mail."""
+        if (row["role"] != ROLE_MANAGER or is_valid_email(str(row["email"] or ""))
+                or setting("PETSUS_RECUPERAR_EMAIL_GESTOR").lower() not in {"true", "1", "yes", "sim"}):
+            return row
+        configured_cpf = self.normalize_cpf(setting("PETSUS_GESTOR_CPF"))
+        email = normalize_email(setting("PETSUS_GESTOR_EMAIL"))
+        if len(configured_cpf) != 11 or configured_cpf != cpf or not is_valid_email(email):
+            return row
+        managers = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1", (ROLE_MANAGER,)).fetchone()[0]
+        if managers != 1 or conn.execute("SELECT 1 FROM users WHERE email = ? AND id != ?", (email, row["id"])).fetchone():
+            return row
+        conn.execute("UPDATE users SET email = ?, session_version = session_version + 1 WHERE id = ?", (email, row["id"]))
+        conn.execute("DELETE FROM login_challenges WHERE user_id = ?", (row["id"],))
+        self._audit(conn, "manager_email_restored", actor_id=int(row["id"]), subject_id=int(row["id"]), detail="private_configuration_after_password_check")
+        return conn.execute("SELECT * FROM users WHERE id = ?", (row["id"],)).fetchone()
 
     def get_active_user(self, user_id: int) -> AuthUser | None:
         with self._connect() as conn:

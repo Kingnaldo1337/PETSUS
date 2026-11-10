@@ -151,6 +151,20 @@ Também é possível provisionar o primeiro gestor por variáveis de ambiente:
 - PETSUS_GESTOR_EMAIL (necessário para segundo fator e recuperação)
 - PETSUS_GESTOR_DATA_NASCIMENTO (opcional, formato AAAA-MM-DD; necessário para recuperação automática da senha do gestor)
 
+### Único gestor sem e-mail no Streamlit Cloud
+
+Se uma conta antiga de gestor não possui e-mail e não há outro gestor ativo, o proprietário do app pode habilitar um reparo excepcional nos Secrets privados do Streamlit Cloud. Preserve as configurações SMTP e acrescente as chaves no nível principal do TOML:
+
+```toml
+PETSUS_RECUPERAR_EMAIL_GESTOR = "true"
+PETSUS_GESTOR_CPF = "CPF de 11 dígitos da conta existente"
+PETSUS_GESTOR_EMAIL = "seu-email@exemplo.com"
+```
+
+Salve e entre normalmente com o CPF e a senha atual. O reparo exige senha válida, CPF correspondente à configuração, apenas um gestor ativo e e-mail ausente ou inválido. Ele não substitui um e-mail válido nem aceita um endereço usado por outra conta. Após o reparo, o código de segundo fator continua sendo enviado ao e-mail e precisa ser confirmado; a exigência de troca de senha também é preservada. Sessões anteriores são invalidadas e a operação é auditada.
+
+Depois de conseguir entrar, remova a chave `PETSUS_RECUPERAR_EMAIL_GESTOR` ou altere seu valor para `"false"`. Não desative o segundo fator nem apague o banco para recuperar a conta. Essa função exige que o código atualizado esteja publicado no app.
+
 RECUPERAÇÃO DE SENHA
 
 Na tela de autenticação, use a aba "Recuperar senha". O sistema confirma CPF, e-mail cadastrado e data de nascimento, envia um código de seis dígitos ao e-mail e permite definir uma nova senha. A data de nascimento é armazenada como hash. Contas criadas antes desta funcionalidade precisam ter essa informação atualizada antes de usar a recuperação automática.
