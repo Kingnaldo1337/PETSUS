@@ -15,3 +15,16 @@ REQUIRED_COLUMNS = {
 
 SALARIO_MINIMO_2026 = 1621.0
 LIMITE_210_SM_2026 = 210 * SALARIO_MINIMO_2026
+
+# ---------------------------------------------------------------------------
+# Governança de Dados — Eixo 6
+# ---------------------------------------------------------------------------
+# Data de corte usada nos cálculos de prazos e indicadores de atraso.
+# Ajuste quando a base for atualizada para uma nova extração real.
+DATA_CORTE_CALCULOS = "2025-12-31"
+
+# Atualize após confirmação do próximo ciclo pelo curador da base.
+PROXIMA_ATUALIZACAO = "A definir"
+
+# URL do formulário de feedback (substitua pelo link real: Google Forms, Typeform etc.)
+FEEDBACK_URL = "mailto:petsus@saude.gov.br?subject=Feedback%20PETSUS"

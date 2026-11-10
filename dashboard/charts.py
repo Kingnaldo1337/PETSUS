@@ -3,17 +3,27 @@ import plotly.graph_objects as go
 
 from .ui import br_int, br_money
 
+CORES = {
+    "justica_estadual": "#083E82",
+    "justica_federal": "#0284C7",
+    "deferido": "#16A34A",
+    "indeferido": "#DC2626",
+    "pendente": "#D97706",
+}
+
 
 def chart_layout(height: int = 310, showlegend: bool = False, legend: dict | None = None) -> dict:
     return dict(
         height=height,
         autosize=True,
-        margin=dict(l=10, r=20, t=10, b=10),
+        margin=dict(l=10, r=40, t=10, b=10),
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(color="#0B2459", family="Inter"),
         showlegend=showlegend,
         legend=legend or dict(),
+        xaxis=dict(automargin=True),
+        yaxis=dict(automargin=True),
     )
 
 
@@ -25,11 +35,23 @@ def empty_fig(msg: str = "Sem dados para os filtros selecionados", height: int =
     return fig
 
 
-def barh(df: pd.DataFrame, label_col: str, value_col: str, text_col: str | None = None, height: int = 320, color: str = "#125CC9") -> go.Figure:
+def barh(
+    df: pd.DataFrame,
+    label_col: str,
+    value_col: str,
+    text_col: str | None = None,
+    height: int = 320,
+    color: str | dict[str, str] = "#125CC9",
+) -> go.Figure:
     if df.empty:
         return empty_fig(height=height)
     data = df.sort_values(value_col, ascending=True).copy()
-    fig = go.Figure(go.Bar(x=data[value_col], y=data[label_col], orientation="h", marker_color=color, text=data[text_col] if text_col else data[value_col], textposition="outside", cliponaxis=False))
+    marker_color = (
+        [color.get(str(label), "#125CC9") for label in data[label_col]]
+        if isinstance(color, dict)
+        else color
+    )
+    fig = go.Figure(go.Bar(x=data[value_col], y=data[label_col], orientation="h", marker_color=marker_color, text=data[text_col] if text_col else data[value_col], textposition="outside", cliponaxis=False))
     fig.update_layout(**chart_layout(height=height))
     fig.update_xaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False, automargin=True)
     fig.update_yaxes(showgrid=False, automargin=True)

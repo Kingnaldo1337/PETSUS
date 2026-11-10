@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+from datetime import datetime
 from html import escape
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -12,13 +16,76 @@ CARD_HELP = {
     "Uso contínuo": "Tratamentos que precisam de entregas ou acompanhamento periódico e não terminam na primeira dispensação.",
     "Total de Processos": "Quantidade total de processos judiciais incluídos no recorte selecionado.",
     "Pacientes Ativos": "Quantidade de pacientes distintos com processos no recorte selecionado.",
-    "Custo Total": "Soma dos custos estimados dos processos exibidos.",
+    "Custo Total": "Soma do custo_estimado, uma estimativa de impacto para o erário. Não é o valor da causa nem o PMVG anual do tratamento.",
+    "Valor anual estimado": "Estimativa anual do tratamento baseada no PMVG de referência. Não representa necessariamente o custo efetivamente pago pelo SUS.",
+    "Valor da causa estimado": "Estimativa do valor atribuído ao pedido na petição. Não é o custo efetivo do tratamento nem o PMVG anual.",
+    "Custo Medicamentos": "Soma do custo_estimado para demandas de medicamentos; estimativa de impacto para o erário, não o PMVG anual.",
+    "Custo Internações": "Soma do custo_estimado para demandas de internação; estimativa de impacto para o erário.",
+    "Maior Processo": "Maior custo_estimado individual no recorte, usado como estimativa de impacto para o erário.",
     "Tempo Médio": "Média de dias de tramitação dos processos exibidos.",
-    "Taxa de Procedência": "Percentual de processos com resultado procedente ou parcialmente procedente.",
     "Processos Urgentes": "Quantidade de processos classificados como urgentes.",
     "Taxa de Liminares": "Percentual de processos que possuem decisão liminar registrada.",
     "Ticket Médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
     "Ticket médio": "É o custo estimado médio de cada processo no recorte selecionado: custo total dividido pela quantidade de processos.",
+}
+
+EXPORT_SENSITIVE_COLUMNS = {
+    "cpf",
+    "cpf_completo",
+    "cpf completo",
+    "cpf_mascarado",
+    "cpf mascarado",
+    "cpf_origem",
+    "cpf_paciente",
+    "cpf paciente",
+    "paciente",
+    "paciente_id",
+    "id paciente",
+    "id do paciente",
+    "identificador do paciente",
+    "patient_id",
+}
+
+DISPLAY_COLUMN_NAMES = {
+    "processo_id": "Processo",
+    "data_ajuizamento": "Data de ajuizamento",
+    "paciente_id": "ID do paciente",
+    "paciente": "Paciente",
+    "cpf": "CPF",
+    "sexo": "Sexo",
+    "idade": "Idade",
+    "faixa_etaria": "Faixa Etária",
+    "municipio": "Município",
+    "uf": "UF",
+    "regiao": "Região",
+    "condicao_clinica": "Condição clínica",
+    "doenca_rara": "Doença rara",
+    "natureza": "Natureza",
+    "tipo_demanda": "Tipo de demanda",
+    "item_demandado": "Item demandado",
+    "especialidade": "Especialidade",
+    "medicamento_dcb": "Princípio Ativo (DCB)",
+    "rename_incorporado": "Incorporado ao SUS",
+    "componente_sus": "Componente SUS",
+    "grupo_sus": "Grupo SUS",
+    "competencia_petsus": "Competência",
+    "reu_sugerido": "Réu sugerido",
+    "fase_processual": "Fase processual",
+    "desfecho": "Desfecho",
+    "custo_estimado": "Custo estimado (erário)",
+    "valor_anual_tratamento": "Valor anual do tratamento (PMVG)",
+    "valor_causa_estimado": "Valor da causa estimado",
+    "pmvg_referencia": "PMVG de referência",
+    "apresentacao_padronizada": "Apresentação",
+    "pcdt_aplicavel": "PCDT aplicável",
+    "pcdt_referencia": "PCDT de referência",
+    "dose_prescrita": "Dose prescrita",
+    "frequencia_administracao": "Frequência de administração",
+    "duracao_meses": "Duração (meses)",
+    "acima_210_salarios_minimos": "Acima de 210 salários mínimos",
+    "indicador_atraso": "Prazo vencido",
+    "data_limite_cumprimento": "Data limite de cumprimento",
+    "tempo_tramitacao_dias": "Tempo de tramitação (dias)",
 }
 
 
@@ -56,6 +123,21 @@ FILTER_HELP = {
 }
 
 
+def mask_cpf(cpf: object) -> str:
+    """Mascara um CPF para exibição pública: '***.NNN.NNN-**'.
+
+    Preserva os seis dígitos centrais e oculta o início e os dígitos verificadores.
+    Exemplo: '123.456.789-09' → '***.456.789-**'
+    """
+    if cpf is None or pd.isna(cpf):
+        return "***.***.***-**"
+    s = str(cpf).strip()
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) == 11:
+        return f"***.{digits[3:6]}.{digits[6:9]}-**"
+    return "***.***.***-**"
+
+
 def br_int(value: float | int) -> str:
     if pd.isna(value):
         return "0"
@@ -79,6 +161,15 @@ def br_money(value: float | int, compact: bool = True) -> str:
 
 def pct(part: float, total: float) -> float:
     return 0.0 if total in [0, None] or pd.isna(total) else (float(part) / float(total)) * 100
+
+
+def suppress_small_counts(values: pd.Series, threshold: int = 5) -> pd.Series:
+    if threshold < 1:
+        raise ValueError("O limite de supressão deve ser maior que zero.")
+    result = values.astype(object).copy()
+    numeric = pd.to_numeric(values, errors="coerce")
+    result.loc[numeric.notna() & numeric.lt(threshold)] = f"< {threshold}"
+    return result
 
 
 def fmt_periodo(df: pd.DataFrame) -> str:
@@ -127,11 +218,30 @@ def insight_card(title: str, value: str, desc: str) -> None:
     )
 
 
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
+def safe_export_frame(df: pd.DataFrame) -> pd.DataFrame:
+    sensitive_columns = [
+        column
+        for column in df.columns
+        if str(column).casefold() in EXPORT_SENSITIVE_COLUMNS
+    ]
+    return df.drop(columns=sensitive_columns).copy()
+
+
+def display_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.rename(columns=DISPLAY_COLUMN_NAMES)
+
+
+def to_excel_bytes(df: pd.DataFrame, safe_export: bool = True) -> bytes:
     output = BytesIO()
+    export_df = safe_export_frame(df) if safe_export else df
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="dados_filtrados", index=False)
+        export_df.to_excel(writer, sheet_name="dados_filtrados", index=False)
     return output.getvalue()
+
+
+def to_csv_bytes(df: pd.DataFrame, safe_export: bool = True) -> bytes:
+    export_df = safe_export_frame(df) if safe_export else df
+    return export_df.to_csv(index=False).encode("utf-8-sig")
 
 
 def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
@@ -142,4 +252,119 @@ def multiselect_sidebar(label: str, df: pd.DataFrame, column: str) -> list[str]:
         key=f"filter_{column}",
         placeholder="Todos",
         help=FILTER_HELP.get(column, f"Filtra os resultados pelos valores selecionados em {label}."),
+    )
+
+
+def citizen_glossary_expander() -> None:
+    with st.expander("📖 Glossário Cidadão — Entenda os termos do seu processo", expanded=False):
+        st.markdown(
+            """
+            Para facilitar a compreensão do andamento do seu processo, veja o significado dos termos jurídicos e da saúde mais utilizados:
+
+            - **Tutela de Urgência / Liminar:** Decisão provisória concedida pelo juiz logo no início do processo, determinando que o SUS forneça o medicamento ou realize o procedimento imediatamente, antes da sentença final, devido ao risco à saúde ou perigo de dano irreparável.
+            - **RENAME (Relação Nacional de Medicamentos Essenciais):** Lista oficial do Ministério da Saúde com todos os medicamentos padronizados e garantidos para entrega pelo SUS.
+            - **PCDT (Protocolo Clínico e Diretrizes Terapêuticas):** Documento oficial que estabelece os critérios de diagnóstico, tratamento recomendado, remédios e doses para cada doença na rede pública.
+            - **Polo Passivo / Réu:** É contra quem a ação judicial foi proposta — geralmente o Município (prefeitura), o Estado (governo estadual) ou a União (governo federal). Eles são os responsáveis por cumprir o que o juiz ordenar.
+            - **Litisconsórcio (Responsabilidade Compartilhada):** Quando mais de um ente público (ex.: Município e Estado juntos) respondem solidariamente pela entrega do tratamento.
+            - **Intimação:** Notificação formal da Justiça para o setor de saúde informando a ordem judicial e iniciando a contagem do prazo limite para cumprimento.
+            - **Prazo de Cumprimento:** Período fixado pelo juiz (geralmente em dias úteis ou corridos) para que o medicamento seja entregue ou o procedimento seja agendado/realizado.
+            - **Princípio Ativo / DCB (Denominação Comum Brasileira):** O nome químico oficial do medicamento, independente do fabricante ou marca comercial.
+            - **Cumprimento de Sentença:** Fase da ação em que a decisão já é definitiva (não cabe mais recurso ordinário) e o poder público tem a obrigação jurídica de prestar o tratamento.
+            """
+        )
+
+
+def citizen_legal_contacts_card() -> None:
+    with st.container(border=True):
+        section_title("🏛️ Onde buscar orientação e assistência jurídica")
+        st.markdown(
+            """
+            Se você tiver dúvidas sobre o seu processo, prazos vencidos ou descumprimento de ordem judicial, procure os canais de assistência:
+
+            - **Defensoria Pública do Estado (DPE):** Assistência jurídica integral e gratuita aos cidadãos que não possuem condições financeiras de contratar advogado. Atua em processos na Justiça Estadual (contra Município ou Estado).
+            - **Defensoria Pública da União (DPU):** Atua gratuitamente em causas que tramitam na Justiça Federal (processos que envolvem a União, o Ministério da Saúde ou o INSS).
+            - **Ouvidoria do SUS — Disque Saúde 136:** Central telefônica gratuita do Ministério da Saúde para informações, reclamações e denúncias sobre falta de medicamentos e regulação.
+            - **Advogado Constituído ou OAB:** Se você contratou um advogado particular ou conta com defensor dativo indicado pela OAB, faça contato direto com o escritório responsável.
+            """
+        )
+
+
+def transparency_footer(data_file: Path, data_corte: str, proxima_atualizacao: str) -> None:
+    """Rodapé de transparência temporal — exibe data de extração, corte e próxima atualização.
+
+    Deve ser chamado no final de cada renderização de página (após o conteúdo principal).
+    """
+    try:
+        mtime = datetime.fromtimestamp(data_file.stat().st_mtime)
+        ultima_extracao = mtime.strftime("%d/%m/%Y às %H:%M")
+    except (FileNotFoundError, OSError):
+        ultima_extracao = "Não disponível"
+
+    st.markdown(
+        f"""
+        <div style="
+            margin-top: 2rem;
+            padding: .85rem 1.1rem;
+            background: #F0F4FB;
+            border: 1px solid #DDE6F2;
+            border-radius: 14px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .6rem 2rem;
+            align-items: center;
+        ">
+            <span style="font-size:.82rem;color:#667085;font-weight:700;letter-spacing:.02em;">ℹ️ TRANSPARÊNCIA DOS DADOS</span>
+            <span style="font-size:.82rem;color:#31456F;">
+                📥 <b>Última modificação da base:</b> {escape(ultima_extracao)}
+            </span>
+            <span style="font-size:.82rem;color:#31456F;">
+                📅 <b>Data de corte dos cálculos:</b> {escape(data_corte)}
+            </span>
+            <span style="font-size:.82rem;color:#31456F;">
+                🔄 <b>Próxima atualização prevista:</b> {escape(proxima_atualizacao)}
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def feedback_widget(feedback_url: str) -> None:
+    """Widget flutuante de feedback no canto inferior direito da tela."""
+    st.markdown(
+        f"""
+        <style>
+        .petsus-feedback-btn {{
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 9999;
+            background: linear-gradient(135deg, #083E82 0%, #125CC9 100%);
+            color: #FFFFFF !important;
+            border: none;
+            border-radius: 50px;
+            padding: .65rem 1.2rem;
+            font-size: .88rem;
+            font-weight: 800;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(8, 62, 130, 0.35);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: .45rem;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }}
+        .petsus-feedback-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 10px 28px rgba(8, 62, 130, 0.45);
+            color: #FFFFFF !important;
+        }}
+        </style>
+        <a class="petsus-feedback-btn" href="{escape(feedback_url, quote=True)}" target="_blank" rel="noopener noreferrer"
+           title="Clique para reportar uma inconsistência ou sugerir uma melhoria">
+            💬 Reportar inconsistência
+        </a>
+        """,
+        unsafe_allow_html=True,
     )

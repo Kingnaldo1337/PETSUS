@@ -6,13 +6,8 @@ MANAGER_PAGES = (
 )
 USER_PAGE_MAP = {
     "Visão Geral": "Visão Geral",
-    "Andamento dos Processos": "Andamento",
-    "Demandas": "Demandas",
-    "Medicamentos": "Medicamentos",
-    "Competência": "Competência",
-    "Custos": "Custos",
-    "Meu Perfil": "Pacientes",
-    "Meus Processos": "Base de Dados",
+    "Meu Andamento": "Andamento",
+    "Meus Documentos": "Base de Dados",
 }
 
 PAGE_SUBTITLES = {
@@ -37,8 +32,11 @@ def navigation_for(is_manager: bool) -> tuple[list[str], dict[str, str]]:
 
 
 def subtitle_for(page: str, is_manager: bool) -> str:
-    if not is_manager and page == "Pacientes":
-        return "Seu perfil e os processos vinculados à sua conta."
-    if not is_manager and page == "Base de Dados":
-        return "Seus processos detalhados e exportação dos seus próprios registros."
-    return PAGE_SUBTITLES[page]
+    if not is_manager:
+        if page == "Visão Geral":
+            return "Resumo do acompanhamento dos seus processos."
+        if page == "Meu Andamento" or page == "Andamento":
+            return "Acompanhamento detalhado do andamento judicial e do cumprimento na saúde."
+        if page == "Meus Documentos" or page == "Base de Dados":
+            return "Seus processos detalhados, relatório em PDF e exportação dos seus registros."
+    return PAGE_SUBTITLES.get(page, "")

@@ -209,11 +209,13 @@ def build_process_tracking_pdf(
         _stage_table(health_stages, int(process.get("etapa_saude_ordem", 0)), GREEN, styles),
         Spacer(1, 10),
         KeepTogether([
-            Paragraph("Observação", styles["Section"]),
+            Paragraph("Orientações ao Cidadão e Observações Legais", styles["Section"]),
             Paragraph(
-                "Este relatório reflete os dados disponíveis no PetSUS no momento da consulta. "
-                "Na base acadêmica, os eventos e prazos são demonstrativos e não substituem a "
-                "consulta oficial ao processo, ao tribunal ou ao órgão de saúde responsável.",
+                "• <b>Dúvidas sobre o processo ou cumprimento de prazos:</b> Procure a Defensoria Pública do seu Estado "
+                "(ou a Defensoria Pública da União em ações na Justiça Federal) ou o seu advogado constituído.<br/>"
+                "• <b>Informações sobre o SUS:</b> Ligue gratuitamente para o <b>Disque Saúde 136</b> (Ministério da Saúde).<br/>"
+                "• <b>Validade deste documento:</b> Este comprovante reflete os registros integrados ao PetSUS na data de emissão. "
+                "Para certidões processuais com fé pública, consulte o portal oficial do respectivo Tribunal de Justiça.",
                 styles["Small"],
             ),
         ]),

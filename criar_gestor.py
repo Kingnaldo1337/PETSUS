@@ -3,7 +3,7 @@ from __future__ import annotations
 from getpass import getpass
 from pathlib import Path
 
-from auth import AuthStore, ROLE_MANAGER
+from petsus.auth.application import AuthStore, ROLE_MANAGER
 
 
 def main() -> None:
