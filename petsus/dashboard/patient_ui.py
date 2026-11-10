@@ -8,6 +8,7 @@ import streamlit as st
 
 from petsus.dashboard.navigation import MATERIAL_ICONS, PAGE_ICONS, navigation_key
 from petsus.dashboard.motion import MOTION_CSS, header_art
+from petsus.dashboard.polish import polish_styles
 
 
 _ICONS = {
@@ -219,6 +220,7 @@ def render_portal_styles(is_manager: bool = False) -> None:
         """
     if is_manager:
         css += _manager_styles()
+    css += polish_styles(st.session_state.get("a11y_contrast", False))
     marker = "patient-portal-marker manager-portal-marker" if is_manager else "patient-portal-marker"
     st.markdown(f'<style>{css}</style><span class="{marker}" aria-hidden="true"></span>', unsafe_allow_html=True)
 

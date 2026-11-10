@@ -6,6 +6,7 @@ import streamlit as st
 from petsus.dashboard.accessibility import render_accessibility_controls
 from petsus.dashboard.patient_ui import icon, render_display_controls
 from petsus.dashboard.motion import MOTION_CSS
+from petsus.dashboard.polish import polish_styles
 
 
 def render_auth_shell() -> None:
@@ -98,6 +99,7 @@ def render_auth_shell() -> None:
         body:has(.auth-screen-marker) [role="dialog"] label,body:has(.auth-screen-marker) [role="dialog"] input {color:#fff!important;-webkit-text-fill-color:#fff!important;}
         body:has(.auth-screen-marker) [role="dialog"] button {background:#000!important;color:#fff!important;border:2px solid #fff!important;}
         """
+    css += polish_styles(st.session_state.get("a11y_contrast", False))
     st.markdown(f'<style>{css}</style><span class="auth-screen-marker" aria-hidden="true"></span>', unsafe_allow_html=True)
     with st.container(key="auth_header"):
         _, controls = st.columns([7, 3], vertical_alignment="center")
