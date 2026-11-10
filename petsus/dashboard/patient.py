@@ -228,14 +228,13 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     with st.container(border=True):
         st.subheader("Etapas de acompanhamento")
         st.write("O destaque mostra onde seu processo está. As outras etapas ajudam a entender o caminho.")
-        show_all = st.toggle("Mostrar todas as etapas", value=False, key="patient_all_stages")
         st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
         for title, stages, current, status, health in (
             ("Na Justiça", JUDICIAL_STAGES, int(process["etapa_judicial_ordem"]), str(process["etapa_judicial"]), False),
             ("Na rede de saúde", HEALTH_STAGES[process["tipo_fluxo_saude"]], int(process["etapa_saude_ordem"]), str(process["etapa_saude"]), True),
         ):
             st.markdown(timeline_html(title, stages, current, status, health=health,
-                                     contrast=bool(st.session_state.get("a11y_contrast", False)), compact=not show_all), unsafe_allow_html=True)
+                                     contrast=bool(st.session_state.get("a11y_contrast", False))), unsafe_allow_html=True)
         st.caption("As etapas são marcos de acompanhamento e não medem a chance de ganhar o processo.")
     with st.container(border=True):
         st.subheader("Como ler as datas e os prazos")
