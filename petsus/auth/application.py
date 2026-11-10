@@ -937,7 +937,11 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                     st.query_params.pop("recover", None)
                     st.rerun()
 
-        if st.query_params.get("recover") == "1":
+        recovery_requested = st.session_state.pop("password_recovery_requested", False)
+        # Links antigos são consumidos uma única vez; fechar o diálogo não
+        # deve fazer cada rerun do login reabrir a recuperação.
+        recovery_link = st.query_params.pop("recover", None)
+        if recovery_requested or recovery_link == "1":
             recovery_dialog()
 
         if not store.has_manager():
@@ -986,6 +990,10 @@ def _render_required_password_change(store: AuthStore, user: AuthUser) -> None:
         logout(store)
 
 
+def _request_password_recovery() -> None:
+    st.session_state["password_recovery_requested"] = True
+
+
 def _render_login(store: AuthStore) -> None:
     pending = st.session_state.get("login_challenge")
     if isinstance(pending, dict):
@@ -1013,8 +1021,8 @@ def _render_login(store: AuthStore) -> None:
     with st.form("login_form", clear_on_submit=False):
         cpf = st.text_input("CPF", placeholder="000.000.000-00", autocomplete="username")
         password = st.text_input("Senha", type="password", autocomplete="current-password")
-        st.markdown('<a class="forgot-password-link" href="?recover=1">Esqueceu sua senha?</a>', unsafe_allow_html=True)
         submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+    st.button("Esqueceu sua senha?", key="forgot_password_button", type="tertiary", on_click=_request_password_recovery)
     if not submitted:
         return
     with st.spinner("Validando CPF e senha…"):

@@ -247,9 +247,13 @@ def render_portal_navigation(page_labels: list[str]) -> str:
     scope = '.stApp [data-testid="stSidebar"] .st-key-portal_navigation'
     css = f"""
     {scope} [data-testid="stVerticalBlock"] {{gap:.25rem;}}
+    {scope} [data-testid="stElementContainer"],{scope} [data-testid="stButton"] {{width:100%!important;align-self:stretch;}}
     {scope} button {{display:flex;justify-content:flex-start;gap:.7rem;min-height:42px;width:100%;text-align:left;border:1px solid transparent!important;border-radius:9px;background:transparent!important;color:#D6E8F8!important;padding:.6rem .7rem;box-shadow:none;font-family:inherit;}}
     {scope} button p {{font-size:.82rem;font-weight:550;color:inherit!important;text-align:left;}}
     {scope} button [data-testid="stMarkdownContainer"] {{text-align:left;}}
+    {scope} button > div {{width:100%;}}
+    {scope} button [data-has-shortcut] {{display:grid!important;grid-template-columns:22px minmax(0,1fr);align-items:center;justify-content:start;column-gap:.7rem;width:100%;}}
+    {scope} button [data-has-shortcut] > :first-child {{width:22px;min-width:22px;justify-self:center;}}
     {scope} button:hover {{background:#FFFFFF0D!important;border-color:#FFFFFF1A!important;}}
     {scope} button[kind="primary"] {{background:linear-gradient(90deg,#208EA42E,#2586AE18)!important;border-color:#57BBD140!important;box-shadow:inset 3px 0 #39BBD2;color:#ECFAFF!important;}}
     {scope} button[kind="primary"] p {{font-weight:750;}}
@@ -261,7 +265,7 @@ def render_portal_navigation(page_labels: list[str]) -> str:
             symbol = MATERIAL_ICONS[PAGE_ICONS.get(label, "document")]
             st.button(label, icon=f":material/{symbol}:", key=navigation_key(label),
                 type="primary" if st.session_state["dashboard_navigation"] == label else "secondary",
-                use_container_width=True, on_click=_select_portal_page, args=(label,))
+                use_container_width=True, wrap=False, on_click=_select_portal_page, args=(label,))
     return st.session_state["dashboard_navigation"]
 
 

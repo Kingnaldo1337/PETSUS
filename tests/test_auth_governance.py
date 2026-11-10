@@ -26,6 +26,36 @@ def make_accounts(tmp_path):
     return store, manager, patient
 
 
+@pytest.mark.parametrize("legacy_link", [False, True])
+def test_password_recovery_opens_only_when_requested_and_does_not_reopen_on_login(tmp_path, legacy_link):
+    store, _, _ = make_accounts(tmp_path)
+    script = f'''
+from pathlib import Path
+import pandas as pd
+from auth import AuthStore, render_auth_gate
+render_auth_gate(AuthStore(Path({str(store.db_path)!r})), pd.DataFrame())
+'''
+    app = AppTest.from_string(script)
+    if legacy_link:
+        app.query_params["recover"] = "1"
+    app.run()
+    assert not app.exception
+    if not legacy_link:
+        assert not any(field.key == "reset_cpf" for field in app.text_input)
+        app.button(key="forgot_password_button").click().run()
+    assert any(field.key == "reset_cpf" for field in app.text_input)
+    assert "recover" not in app.query_params
+    # Um rerun completo representa o retorno ao login após fechar o diálogo.
+    app.run()
+    assert not app.exception
+    assert not any(field.key == "reset_cpf" for field in app.text_input)
+    app.button(key="auth_text_large").click().run()
+    assert not any(field.key == "reset_cpf" for field in app.text_input)
+    app.button(key="forgot_password_button").click().run()
+    assert not app.exception
+    assert any(field.key == "reset_cpf" for field in app.text_input)
+
+
 def test_temporary_password_must_change_and_old_sessions_are_invalidated(tmp_path):
     store, manager, patient = make_accounts(tmp_path)
     assert manager.must_change_password

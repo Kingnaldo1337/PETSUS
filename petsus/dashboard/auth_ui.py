@@ -63,6 +63,9 @@ def render_auth_shell() -> None:
     .st-key-auth_panel [data-testid="stCaptionContainer"] {font-size:.76rem;line-height:1.55;color:#5D7088;}
     .forgot-password-link {display:inline-block;color:#17687E!important;font-size:.79rem;font-weight:600;text-decoration:none;margin:.2rem 0 .3rem;}
     .forgot-password-link:hover,.forgot-password-link:focus {text-decoration:underline;}
+    .st-key-forgot_password_button button {padding:.2rem 0;min-height:30px;color:#17687E;background:transparent;border:0;}
+    .st-key-forgot_password_button button p {font-size:.79rem;font-weight:600;}
+    .st-key-forgot_password_button button:hover {text-decoration:underline;background:transparent;}
     .auth-support {width:min(100%,510px);margin:1.15rem auto .3rem;padding:.9rem .4rem;text-align:center;color:#5D7088;font-size:.76rem;line-height:1.7;}
     .auth-support-title {color:#36536F;font-weight:650;margin-bottom:.35rem;}
     .auth-support a {color:#17687E!important;font-weight:600;text-decoration:none;overflow-wrap:anywhere;}
