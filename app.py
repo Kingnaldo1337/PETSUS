@@ -243,6 +243,9 @@ auth_user = render_auth_gate(auth_store, base_all)
 render_accessibility_controls(show_sidebar=False)
 try:
     base = restrict_data_for_user(base_all, auth_user)
+    if not auth_user.is_manager and auth_store.is_active_test_account(auth_user):
+        from petsus.dashboard.test_processes import add_test_processes
+        base = add_test_processes(base, REFERENCE_DATE)
 except AccessScopeError as exc:
     st.error(str(exc))
     # Uma falha no vínculo mantém ajuda e saída disponíveis, sem liberar dados.

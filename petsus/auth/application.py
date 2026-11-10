@@ -244,6 +244,11 @@ class AuthStore:
         cpf = self.normalize_cpf(setting(f"PETSUS_TEST_{prefix}_CPF"))
         return len(cpf) == 11 and hmac.compare_digest(str(row["cpf_lookup"]), self._lookup_key(cpf))
 
+    def is_active_test_account(self, user: AuthUser) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ? AND active = 1", (user.id,)).fetchone()
+        return bool(row is not None and int(row["session_version"]) == user.session_version and self._test_account_enabled(row))
+
     def requires_second_factor(self, user: AuthUser) -> bool:
         if not mfa_required():
             return False

@@ -31,12 +31,14 @@ def test_only_marked_test_accounts_skip_mfa_and_still_require_correct_password(t
     patient = store.authenticate("22222222222", "senha-paciente-teste")
     assert manager.is_manager and not patient.is_manager
     assert patient.patient_id == "PAC1"
+    assert store.is_active_test_account(patient)
     assert not manager.must_change_password
     assert not store.requires_second_factor(manager)
     assert not store.requires_second_factor(patient)
     assert store.authenticate("11111111111", "senha-errada") is None
     regular = store.create_user("33333333333", "senha-normal", "Gestor normal", "gestor", email="normal@example.com")
     assert store.requires_second_factor(regular)
+    assert not store.is_active_test_account(regular)
     with store._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM users WHERE is_test_account = 1").fetchone()[0] == 2
 
