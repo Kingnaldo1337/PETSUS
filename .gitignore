@@ -6,4 +6,6 @@ usuarios.db
 usuarios.db-*
 usuarios.secret
 .streamlit/secrets.toml
-/tmp/
+tmp/
+output/
+.pytest_cache/

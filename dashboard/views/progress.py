@@ -1,52 +1,25 @@
 from __future__ import annotations
 
-from html import escape
-
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
-
-from ..charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, insight_card, metric_card, pct, section_title, to_excel_bytes
-from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
-
-LIMITE_210_SM_2026 = 210 * 1621.0
-
-JUDICIAL_TRACK = (
-    "Documentação preparada", "Processo protocolado", "Processo distribuído",
-    "Análise técnica", "Aguardando decisão", "Decisão sobre urgência",
-    "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
-    "Recursos / encerramento",
+from .shared import (
+    JUDICIAL_TRACK,
+    MIN_PATIENTS,
+    _cards,
+    _count,
+    _plot,
+    barh,
+    br_int,
+    build_process_tracking_pdf,
+    escape,
+    mask_personal_data,
+    pd,
+    protected_aggregate,
+    section_title,
+    st,
+    tracking_bar,
 )
 
 
-def tracking_bar(title: str, stages, current: int, color: str) -> None:
-    help_text = (
-        "A Trilha A mostra o andamento do processo dentro do Judiciário."
-        if title.startswith("Trilha A")
-        else "A Trilha B mostra o cumprimento prático da decisão pela rede de saúde."
-    )
-    items = []
-    for index, name in enumerate(stages, start=1):
-        state = "done" if index < current else "current" if index == current else "pending"
-        marker = "✓" if index < current else str(index)
-        items.append(
-            f'<div class="flow-step {state}" style="--track-color:{color}">'
-            f'<div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>'
-        )
-    st.markdown(
-        f'<div class="flow-title">{escape(title)}'
-        f'<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" '
-        f'data-help="{escape(help_text, quote=True)}">?</span></div>'
-        f'<div class="flow-track">' + "".join(items) + "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_progress(dff, base, paciente_ids_sel):
-    auth_state = st.session_state.get("auth_user", {})
-    user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
+def _render_tracking(dff, user_role="gestor"):
     st.markdown(
         """
         <style>
@@ -82,34 +55,24 @@ def render_progress(dff, base, paciente_ids_sel):
         "Uma decisão favorável não significa, por si só, que o medicamento foi entregue ou que a cirurgia foi realizada."
     )
 
-    overdue_count = int((dff["indicador_atraso"] == "Sim").sum())
-    health_active = int((dff["etapa_saude_ordem"] > 0).sum())
-    continuous = int((dff["status_andamento"] == "Tratamento em cumprimento contínuo").sum())
-    cols = st.columns(4)
-    cards = [
-        ("Processos acompanhados", br_int(len(dff)), "processos no recorte", "📋", "icon-blue"),
-        ("Cumprimento iniciado", br_int(health_active), "ordens em execução na saúde", "⚕", "icon-green"),
-        ("Prazo vencido", br_int(overdue_count), "cumprimentos pendentes", "!", "icon-orange"),
-        ("Uso contínuo", br_int(continuous), "tratamentos com acompanhamento periódico", "↻", "icon-purple"),
-    ]
-    for col, card in zip(cols, cards):
-        with col:
-            metric_card(*card)
-
-    if user_role != "usuario":
-        a, b = st.columns(2)
-        with a:
-            with st.container(border=True):
-                section_title("Etapas judiciais no recorte")
-                judicial_summary = dff.groupby("etapa_judicial", as_index=False).size().rename(columns={"size": "processos"})
-                judicial_summary["texto"] = judicial_summary["processos"].map(br_int)
-                st.plotly_chart(barh(judicial_summary, "etapa_judicial", "processos", "texto", height=320), use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Cumprimento na rede de saúde")
-                health_summary = dff.groupby("etapa_saude", as_index=False).size().rename(columns={"size": "processos"})
-                health_summary["texto"] = health_summary["processos"].map(br_int)
-                st.plotly_chart(barh(health_summary, "etapa_saude", "processos", "texto", height=320, color="#239B56"), use_container_width=True, config={"displayModeBar": False})
+    if dff["paciente_id"].nunique() >= MIN_PATIENTS:
+        _cards([
+            ("Processos acompanhados", br_int(len(dff)), "processos no recorte", "📋", "icon-blue"),
+            ("Cumprimento iniciado", _count(dff, dff["etapa_saude_ordem"].gt(0)), "ordens em execução na saúde", "⚕", "icon-green"),
+            ("Prazo vencido", _count(dff, dff["indicador_atraso"].eq("Sim")), "cumprimentos pendentes na data de referência", "!", "icon-orange"),
+            ("Uso contínuo", _count(dff, dff["status_andamento"].eq("Tratamento em cumprimento contínuo")), "tratamentos com acompanhamento periódico", "↻", "icon-purple"),
+        ])
+        with st.container(border=True, key="manager_panel_etapas_judiciais_no_recorte"):
+            section_title("Etapas judiciais no recorte")
+            judicial_summary = protected_aggregate(dff, ["etapa_judicial"])
+            judicial_summary["texto"] = judicial_summary["processos"].map(br_int)
+            _plot(barh(judicial_summary, "etapa_judicial", "processos", "texto", height=320, separate_dominant=True), key="tracking:judicial_summary")
+        with st.container(border=True, key="manager_panel_cumprimento_na_rede_de_saude"):
+            section_title("Cumprimento na rede de saúde")
+            st.caption("Processos por etapa registrada na rede de saúde. Os nomes completos aparecem ao passar o mouse sobre cada barra.")
+            health_summary = protected_aggregate(dff, ["etapa_saude"])
+            health_summary["texto"] = health_summary["processos"].map(br_int)
+            _plot(barh(health_summary, "etapa_saude", "processos", "texto", height=380, color="#239B56", separate_dominant=True), key="tracking:health_summary")
 
     section_title("Consultar um processo")
     process_rows = dff.sort_values("ultima_movimentacao_data", ascending=False).drop_duplicates("processo_id")
@@ -122,6 +85,10 @@ def render_progress(dff, base, paciente_ids_sel):
 
     st.markdown(f"### {escape(str(process['item_demandado']))}")
     st.caption(f"Processo {process['processo_id']} · Fluxo de {process['tipo_fluxo_saude']}")
+    if pd.notna(process.get("data_referencia_calculo")):
+        st.caption(f"Data de referência dos prazos: {pd.Timestamp(process['data_referencia_calculo']).strftime('%d/%m/%Y')}")
+    if pd.notna(process.get("geracao_simulacao")):
+        st.caption(f"Simulação gerada para: {pd.Timestamp(process['geracao_simulacao']).strftime('%d/%m/%Y')}")
     if process["status_andamento"] == "Tratamento em cumprimento contínuo":
         st.success("O medicamento foi entregue, mas o acompanhamento continua por se tratar de uso contínuo.")
 
@@ -140,27 +107,27 @@ def render_progress(dff, base, paciente_ids_sel):
     }
     health_track = health_tracks[process["tipo_fluxo_saude"]]
     if int(process["etapa_saude_ordem"]) == 0:
-        st.warning("A trilha de cumprimento ainda não começou porque não há ordem favorável registrada.")
+        st.info(f"Cumprimento ainda não iniciado: {process['etapa_saude']}.")
     st.progress(int(process["percentual_saude"]), text=f"Cumprimento na saúde: {int(process['percentual_saude'])}%")
     tracking_bar(f"Trilha B - cumprimento de {str(process['tipo_fluxo_saude']).lower()}", health_track, int(process["etapa_saude_ordem"]), "#239B56")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        with st.container(border=True):
+        with st.container(border=True, key="manager_panel_decisao_e_comunicacao"):
             section_title("Decisão e comunicação")
             st.write(process["decisao_urgencia"])
             if pd.notna(process["data_intimacao"]):
                 st.caption(f"Intimação: {pd.to_datetime(process['data_intimacao']).strftime('%d/%m/%Y')}")
     with c2:
-        with st.container(border=True):
+        with st.container(border=True, key="manager_panel_prazo_para_cumprimento"):
             section_title("Prazo para cumprimento")
             if pd.notna(process["data_limite_cumprimento"]):
                 st.markdown(f"**{pd.to_datetime(process['data_limite_cumprimento']).strftime('%d/%m/%Y')}**")
-                st.caption(f"Prazo demonstrativo: {int(process['prazo_cumprimento_dias'])} dias")
+                st.caption(f"Prazo informado: {int(process['prazo_cumprimento_dias'])} dias")
             else:
                 st.write("Ainda não definido")
     with c3:
-        with st.container(border=True):
+        with st.container(border=True, key="manager_panel_proxima_acao"):
             section_title("Próxima ação")
             st.write(process["proxima_etapa"])
             st.caption(f"Responsável: {process['responsavel_etapa']}")
@@ -169,7 +136,7 @@ def render_progress(dff, base, paciente_ids_sel):
         st.info(process["mensagem_paciente"])
 
     pdf_data = build_process_tracking_pdf(
-        process.to_dict(),
+        mask_personal_data(pd.DataFrame([process])).iloc[0].to_dict(),
         JUDICIAL_TRACK,
         health_track,
     )
@@ -182,7 +149,6 @@ def render_progress(dff, base, paciente_ids_sel):
         type="primary",
     )
 
-    if user_role == "usuario":
-        st.markdown("---")
-        citizen_legal_contacts_card()
-        citizen_glossary_expander()
+
+def render_progress(dff, base, paciente_ids_sel):
+    return _render_tracking(dff)

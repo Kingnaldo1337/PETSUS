@@ -29,8 +29,12 @@ def send_verification_code(recipient: str, code: str) -> None:
     security = setting("PETSUS_SMTP_SECURITY", "starttls").lower()
     if not host or not sender:
         raise RuntimeError("O envio de e-mail ainda não foi configurado pela administração.")
+    if security not in {"ssl", "starttls"}:
+        raise RuntimeError("Configure SMTP seguro com PETSUS_SMTP_SECURITY=starttls ou ssl.")
     try:
         port = int(port_text)
+        if not 1 <= port <= 65535:
+            raise ValueError
     except ValueError as exc:
         raise RuntimeError("A porta SMTP configurada é inválida.") from exc
 
@@ -41,7 +45,8 @@ def send_verification_code(recipient: str, code: str) -> None:
     message.set_content(
         f"Seu código de verificação é: {code}\n\n"
         f"Ele expira em {OTP_TTL_MINUTES} minutos. "
-        "Se você não solicitou este cadastro, ignore esta mensagem."
+        "Se você não solicitou este acesso ou alteração de conta, ignore esta mensagem. "
+        "Nunca compartilhe o código."
     )
 
     context = ssl.create_default_context()
@@ -59,3 +64,12 @@ def send_verification_code(recipient: str, code: str) -> None:
             if username:
                 smtp.login(username, password)
             smtp.send_message(message)
+
+
+def smtp_configured() -> bool:
+    """Só anuncia o segundo fator quando há um destino SMTP configurado."""
+    return bool(setting("PETSUS_SMTP_HOST") and setting("PETSUS_SMTP_FROM", setting("PETSUS_SMTP_USERNAME")))
+
+
+def mfa_required() -> bool:
+    return smtp_configured() or setting("PETSUS_REQUIRE_MFA").lower() in {"1", "true", "yes", "sim"}

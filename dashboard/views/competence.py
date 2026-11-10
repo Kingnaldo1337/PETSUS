@@ -1,95 +1,101 @@
 from __future__ import annotations
 
-from html import escape
+from .shared import (
+    _cards,
+    _cost_definitions,
+    _distribution,
+    _medication_subset,
+    _plot,
+    _rate,
+    _table,
+    br_money,
+    chart_layout,
+    escape,
+    go,
+    pd,
+    protected_aggregate,
+    section_title,
+    semantic_color,
+    st,
+)
 
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
 
-from ..charts import CORES, barh, chart_layout, empty_fig, monthly_line, top_group
-from ..ui import br_float, br_int, br_money, citizen_glossary_expander, citizen_legal_contacts_card, display_columns, insight_card, metric_card, pct, section_title, to_excel_bytes
-from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
+def _render_responsibility_detail(dff):
+    with st.container(border=True, key="manager_panel_responsabilidade_por_processo"):
+        section_title("Responsabilidade indicada por processo")
+        st.caption("Consulta operacional para apoiar a revisão do ente responsável. A indicação vem do cadastro e precisa de avaliação jurídica antes da definição das partes da ação.")
+        rows = dff.drop_duplicates("processo_id").copy()
+        ids = rows["processo_id"].astype(str)
+        selected = st.selectbox("Consultar responsabilidade do processo", ids.tolist(), index=None,
+            placeholder="Selecione ou digite o número do processo", key="competency_process")
+        if selected is None:
+            return
+        process = rows.loc[ids.eq(selected)].iloc[0]
+        entity = str(process.get("ente_responsavel", "Não informado"))
+        messages = {
+            "Município": "Responsabilidade municipal indicada. Conferir as atribuições e o fluxo aplicável ao pedido.",
+            "Estado": "Responsabilidade estadual indicada. Revisar o encaminhamento ao Estado, evitando atribuir o atendimento exclusivamente ao Município sem análise do caso.",
+            "União": "Responsabilidade da União indicada. Revisar a participação do ente federal e o fluxo de atendimento aplicável.",
+            "Compartilhada": "Responsabilidade compartilhada indicada. Identificar os entes envolvidos e pactuar as atribuições; o cadastro não detalha a participação de cada um.",
+        }
+        st.markdown(f"**Processo:** {escape(str(selected))}")
+        st.metric("Ente responsável indicado", entity if entity in messages else "Não informado")
+        st.info(messages.get(entity, "Não há classificação suficiente para indicar o ente responsável. Encaminhe o registro para revisão."))
+        for label, column in [("Item demandado", "item_demandado"), ("Réu sugerido no cadastro", "reu_sugerido"), ("Dispensação administrativa", "ente_dispensacao_simulado"), ("Competência judicial", "competencia_petsus")]:
+            value = process.get(column)
+            if pd.notna(value) and str(value).strip():
+                st.markdown(f"**{label}:** {escape(str(value))}")
+        st.caption("Responsabilidade administrativa, réu sugerido e competência judicial são campos distintos. Esta consulta não determina automaticamente contra quem propor a ação.")
 
-LIMITE_210_SM_2026 = 210 * 1621.0
+
+def _render_competency(dff):
+    st.info("Responsabilidade administrativa pelo fornecimento e competência judicial são dimensões diferentes.")
+    if "ente_responsavel" in dff:
+        _cards([
+            (ente, _rate(dff, dff["ente_responsavel"].eq(ente)), "percentual de todos os processos filtrados; responsabilidade indicada", "🏛", "icon-blue")
+            for ente in ["Município", "Estado", "União", "Compartilhada"]
+        ])
+        _distribution(dff, "ente_responsavel", "Ente responsável pela demanda", height=290)
+        shared = dff["ente_responsavel"].isin(["Estado", "União", "Compartilhada"])
+        _cards([("Participação de outros entes", _rate(dff, shared), "Estado, União ou responsabilidade compartilhada ÷ processos filtrados; indica casos para revisão da atribuição exclusiva ao Município", "🏛", "icon-blue")])
+        _render_responsibility_detail(dff)
+    med = _medication_subset(dff)
+    if med is None:
+        return
+    _cards([
+        ("Justiça Federal", _rate(med, med["competencia_petsus"].eq("Justiça Federal")), "percentual das demandas de medicamentos; simulação", "🏛", "icon-blue"),
+        ("Justiça Estadual", _rate(med, med["competencia_petsus"].eq("Justiça Estadual")), "percentual das demandas de medicamentos; simulação", "⚖", "icon-green"),
+        ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "estimativa processual, não custo executado", "$", "icon-purple"),
+    ])
+    _cost_definitions()
+    if {"salario_minimo_ajuizamento", "limite_210_sm_ajuizamento"}.issubset(med.columns):
+        with st.container(border=True, key="manager_panel_referencia_temporal_da_simulacao"):
+            section_title("Referência temporal da simulação")
+            temporal = med.assign(ano=pd.to_datetime(med["data_ajuizamento"]).dt.year)
+            limits = protected_aggregate(temporal, ["ano"], salario_minimo_ajuizamento=("salario_minimo_ajuizamento", "first"), limite_210_sm_ajuizamento=("limite_210_sm_ajuizamento", "first"))
+            _table(limits[["ano", "salario_minimo_ajuizamento", "limite_210_sm_ajuizamento", "processos"]], height=200)
+            st.caption("O cálculo compara o valor anual com 210 salários mínimos do ano do ajuizamento de cada processo; não aplica um valor de 2026 a processos de 2024/2025. Critério sujeito a revisão jurídica conforme as normas aplicáveis e o caso concreto.")
+    a, b = st.columns(2)
+    with a:
+        _distribution(med, "competencia_petsus", "Competência judicial")
+    with b:
+        with st.container(border=True, key="manager_panel_competencia_e_incorporacao_a_rename"):
+            section_title("Competência e incorporação à RENAME")
+            cross = protected_aggregate(med, ["rename_incorporado", "competencia_petsus"])
+            fig = go.Figure()
+            for name in ["Justiça Federal", "Justiça Estadual"]:
+                values = cross[cross["competencia_petsus"].eq(name)]
+                fig.add_trace(go.Bar(x=values["rename_incorporado"], y=values["processos"], name=name, marker_color=semantic_color(name), text=values["processos"], textposition="auto"))
+            fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
+            fig.update_xaxes(title="Incorporado à lista RENAME")
+            fig.update_yaxes(title="Demandas de medicamentos", rangemode="tozero")
+            _plot(fig, key="competency:rename_cross")
+    with st.container(border=True, key="manager_panel_responsabilidade_administrativa_e_judicial_simuladas"):
+        section_title("Responsabilidade administrativa e judicial")
+        groups = [column for column in ["componente_sus", "ente_dispensacao_simulado", "ente_responsavel", "competencia_petsus"] if column in med]
+        table = protected_aggregate(med, groups)
+        _table(table[groups + ["processos", "pacientes"]])
+
 
 def render_competence(dff, base, k, participacao, part_custo, paciente_ids_sel):
-    med = dff[dff["medicamento_petsus"] == "Sim"].copy()
-    st.info(
-        f"Simulação acadêmica com os campos do PetSUS. Para medicamentos não incorporados, o dashboard usa como referência "
-        f"210 salários mínimos de 2026 (R$ {br_float(LIMITE_210_SM_2026, 2)})."
-    )
-    if med.empty:
-        st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
-    else:
-        federal = int((med["competencia_petsus"] == "Justiça Federal").sum())
-        estadual = int((med["competencia_petsus"] == "Justiça Estadual").sum())
-        alto_custo = int((med["acima_210_salarios_minimos"] == "Sim").sum())
-        reu_top = top_group(med, "reu_sugerido", "processo_id", 1, "count")
-        cols = st.columns(5)
-        cards = [
-            ("Justiça Federal", f"{br_float(pct(federal, len(med)))}%", f"{br_int(federal)} processos", "🏛️", "icon-blue"),
-            ("Justiça Estadual", f"{br_float(pct(estadual, len(med)))}%", f"{br_int(estadual)} processos", "⚖️", "icon-green"),
-            ("≥ 210 salários mínimos", br_int(alto_custo), "tratamentos anuais acima do limite de referência", "💰", "icon-orange"),
-            ("Réu mais sugerido", reu_top["reu_sugerido"].iloc[0] if not reu_top.empty else "-", "maior frequência no recorte", "👤", "icon-purple"),
-            ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "estimativa do pedido na petição; não é custo efetivo", "$", "icon-green"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-
-        a, b, c = st.columns([1.0, 1.0, 1.4])
-        with a:
-            with st.container(border=True):
-                section_title("Competência judicial")
-                comp = med.groupby("competencia_petsus", as_index=False).size().rename(columns={"size": "processos"})
-                comp["texto"] = comp["processos"].map(br_int)
-                cores_competencia = {
-                    "Justiça Estadual": CORES["justica_estadual"],
-                    "Justiça Federal": CORES["justica_federal"],
-                }
-                st.plotly_chart(barh(comp, "competencia_petsus", "processos", "texto", height=340, color=cores_competencia), use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Réu sugerido")
-                reu = top_group(med, "reu_sugerido", "processo_id", 5, "count")
-                reu["texto"] = reu["valor"].map(br_int)
-                st.plotly_chart(barh(reu, "reu_sugerido", "valor", "texto", height=340, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
-        with c:
-            with st.container(border=True):
-                section_title("Competência x incorporação à RENAME")
-                cross = pd.crosstab(med["rename_incorporado"], med["competencia_petsus"]).reset_index()
-                fig = go.Figure()
-                for nome, color in [
-                    ("Justiça Federal", CORES["justica_federal"]),
-                    ("Justiça Estadual", CORES["justica_estadual"]),
-                ]:
-                    if nome not in cross.columns:
-                        cross[nome] = 0
-                    fig.add_trace(go.Bar(x=cross["rename_incorporado"], y=cross[nome], name=nome, marker_color=color, text=cross[nome], textposition="inside"))
-                fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
-                fig.update_yaxes(title_text="Processos", showgrid=True, gridcolor="#E8EDF5", zeroline=False, automargin=True)
-                fig.update_xaxes(title_text="Incorporado ao SUS", automargin=True)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-        d, e = st.columns([1.05, 1.6])
-        with d:
-            with st.container(border=True):
-                section_title("Valor anual por componente")
-                val_comp = top_group(med, "componente_sus", "valor_anual_tratamento", 8, "sum")
-                val_comp["texto"] = val_comp["valor"].map(br_money)
-                st.plotly_chart(barh(val_comp, "componente_sus", "valor", "texto", height=360, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-        with e:
-            with st.container(border=True):
-                section_title("Casos de maior valor anual")
-                tab = med[[
-                    "processo_id", "cid", "medicamento_dcb", "rename_incorporado", "componente_sus", "grupo_sus",
-                    "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_petsus", "reu_sugerido"
-                ]].sort_values("valor_anual_tratamento", ascending=False).head(15)
-                st.dataframe(display_columns(tab.rename(columns={
-                    "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "Princípio Ativo (DCB)", "rename_incorporado": "Incorporado ao SUS",
-                    "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual do tratamento (PMVG)",
-                    "acima_210_salarios_minimos": "≥ 210 SM", "competencia_petsus": "Competência", "reu_sugerido": "Réu sugerido"
-                })), hide_index=True, use_container_width=True, height=360, column_config={
-                    "Valor anual do tratamento (PMVG)": st.column_config.NumberColumn("Valor anual do tratamento (PMVG)", format="R$ %.2f")
-                })
+    return _render_competency(dff)

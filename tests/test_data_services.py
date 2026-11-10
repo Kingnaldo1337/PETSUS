@@ -51,24 +51,30 @@ def test_metrics_are_calculated_in_data_layer():
     assert metrics["liminar"] == 50.0
 
 
-def test_procedencia_uses_only_resolved_outcomes():
+def test_procedencia_separates_full_and_partial_judgments():
     data = pd.concat([sample_data().iloc[[0]]] * 5, ignore_index=True)
     data["desfecho"] = [
-        "Procedente",
-        "Parcialmente procedente",
+        " PROCEDENTE ",
+        " parcialmente procedente ",
         "Improcedente",
         "Em andamento",
         "Sem resolução de mérito",
     ]
 
-    assert calculate_kpis(data)["procedencia"] == pytest.approx(200 / 3)
+    metrics = calculate_kpis(data)
+    assert metrics["procedencia"] == pytest.approx(100 / 3)
+    assert metrics["procedencia_parcial"] == pytest.approx(100 / 3)
+    assert metrics["julgados"] == 3
 
 
-def test_procedencia_is_zero_when_no_outcome_is_resolved():
+def test_procedencia_is_unavailable_when_no_merit_judgment_exists():
     data = sample_data()
     data["desfecho"] = ["Em andamento", "Sem resolução de mérito"]
 
-    assert calculate_kpis(data)["procedencia"] == 0
+    metrics = calculate_kpis(data)
+    assert metrics["procedencia"] is None
+    assert metrics["procedencia_parcial"] is None
+    assert metrics["julgados"] == 0
 
 
 def test_access_scope_is_applied_before_filters():
@@ -121,14 +127,15 @@ def test_small_counts_are_suppressed():
 
 
 def test_future_deadline_is_not_marked_overdue():
-    future_date = pd.Timestamp.today().normalize() + pd.Timedelta(days=90)
+    reference_date = pd.Timestamp("2026-11-09")
     data = pd.DataFrame(
         {
             "processo_id": ["PROC-FUTURO"],
-            "data_ajuizamento": [future_date],
+            "data_ajuizamento": [pd.Timestamp("2026-11-06")],
             "fase_processual": ["Conhecimento"],
             "desfecho": ["Em andamento"],
             "tempo_tramitacao_dias": [1],
+            "tempo_liminar_dias": [2],
             "urgente": ["Sim"],
             "liminar": ["Sim"],
             "natureza": ["Medicamentos"],
@@ -136,7 +143,7 @@ def test_future_deadline_is_not_marked_overdue():
         }
     )
 
-    enriched = enrich_process_tracking(data)
+    enriched = enrich_process_tracking(data, reference_date=reference_date)
 
-    assert enriched.iloc[0]["data_limite_cumprimento"] > pd.Timestamp.today().normalize()
+    assert enriched.iloc[0]["data_limite_cumprimento"] > reference_date
     assert enriched.iloc[0]["indicador_atraso"] == "Não"

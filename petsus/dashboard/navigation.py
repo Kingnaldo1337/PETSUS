@@ -2,25 +2,40 @@ from __future__ import annotations
 
 MANAGER_PAGES = (
     "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
-    "Custos", "Geografia", "Pacientes", "Base de Dados", "Gestão interna",
+    "Custos", "Prevenção", "Geografia", "Pacientes", "Base de Dados", "Gestão interna", "Ajuda e feedback",
 )
 USER_PAGE_MAP = {
-    "Visão Geral": "Visão Geral",
-    "Meu Andamento": "Andamento",
-    "Meus Documentos": "Base de Dados",
+    "Meu acompanhamento": "Meu acompanhamento",
+    "Meus processos": "Meus processos",
+    "Meus documentos": "Meus documentos",
+    "Ajuda e contato": "Ajuda e feedback",
+}
+
+PAGE_ICONS = {
+    "Visão Geral": "chart", "Andamento": "clock", "Demandas": "document",
+    "Medicamentos": "medical", "Competência": "scales", "Custos": "wallet",
+    "Prevenção": "check", "Geografia": "location", "Pacientes": "users",
+    "Base de Dados": "document", "Gestão interna": "lock", "Ajuda e feedback": "chat",
+    "Meu acompanhamento": "clock", "Meus processos": "document",
+    "Meus documentos": "download", "Ajuda e contato": "chat",
 }
 
 PAGE_SUBTITLES = {
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
     "Andamento": "Andamento judicial e cumprimento na saúde acompanhados separadamente.",
     "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",
-    "Medicamentos": "Incorporação à RENAME, DCB, componente SUS, PCDT, PMVG e esquema posológico.",
+    "Medicamentos": "Assistência farmacêutica, protocolos e custos dos pedidos.",
     "Competência": "Competência judicial, réu sugerido e critério de custo anual usados pelo PetSUS.",
     "Custos": "Custos totais, ticket médio, medicamentos/insumos e especialidades mais caras.",
     "Geografia": "Distribuição por região, UF e município.",
-    "Pacientes": "Perfil dos pacientes e busca individual.",
-    "Base de Dados": "Tabela detalhada, exportação e conferência dos registros filtrados.",
-    "Gestão interna": "Cadastro de gestores e manutenção individual de contas por CPF.",
+    "Pacientes": "Perfil demográfico e socioassistencial dos pacientes, com proteção de grupos pequenos.",
+    "Base de Dados": "Tabela agregada, exportação protegida e conferência dos grupos filtrados.",
+    "Gestão interna": "Cadastro de gestores, revisão de acessos e trilha de auditoria.",
+    "Prevenção": "Causas recorrentes e oportunidades de resolução administrativa.",
+    "Ajuda e feedback": "Ajuda, relato de erros, avaliação de uso e informações sobre os dados.",
+    "Meu acompanhamento": "Veja a situação do seu pedido, os próximos passos e quem procurar.",
+    "Meus processos": "Consulte os pedidos vinculados à sua conta.",
+    "Meus documentos": "Baixe o resumo de acompanhamento de cada processo.",
 }
 
 
@@ -32,11 +47,8 @@ def navigation_for(is_manager: bool) -> tuple[list[str], dict[str, str]]:
 
 
 def subtitle_for(page: str, is_manager: bool) -> str:
-    if not is_manager:
-        if page == "Visão Geral":
-            return "Resumo do acompanhamento dos seus processos."
-        if page == "Meu Andamento" or page == "Andamento":
-            return "Acompanhamento detalhado do andamento judicial e do cumprimento na saúde."
-        if page == "Meus Documentos" or page == "Base de Dados":
-            return "Seus processos detalhados, relatório em PDF e exportação dos seus registros."
-    return PAGE_SUBTITLES.get(page, "")
+    if not is_manager and page == "Pacientes":
+        return "Seu perfil e os processos vinculados à sua conta."
+    if not is_manager and page == "Base de Dados":
+        return "Seus processos detalhados e exportação dos seus próprios registros."
+    return PAGE_SUBTITLES[page]

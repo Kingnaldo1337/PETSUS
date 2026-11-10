@@ -1,5 +1,20 @@
 # DASHBOARD DE JUDICIALIZAÇÃO NA SAÚDE
 
+VERSÃO 2.0.0 — CORREÇÕES DO FEEDBACK (09/11/2026)
+
+Consulte CORRECOES_FEEDBACK.md para o mapa completo das correções, configuração
+de contatos/SMTP, limites da demonstração e operação de atualização/conferência.
+O exemplo de configuração está em .streamlit/secrets.example.toml.
+
+O paciente agora usa Meu acompanhamento, Meus processos, Meus documentos e
+Ajuda e contato, sem os gráficos e filtros do gestor. O gestor tem também
+Prevenção, Ajuda e feedback, revisão de contas e auditoria.
+
+Na análise gerencial, exportações são agregadas e grupos com menos de cinco
+pacientes distintos são protegidos. Use Andamento para consulta operacional.
+Os dados e enriquecimentos continuam sintéticos e não devem ser usados como
+orientação clínica, cálculo jurídico ou comprovação de gasto real.
+
 Como executar no Windows:
 
 1) Abra o PowerShell ou CMD dentro desta pasta.
@@ -58,7 +73,7 @@ Como filtrar por paciente:
 - Quando aparecerem pacientes encontrados, selecione o paciente exato no campo logo abaixo.
 
 Observação:
-Os dados são fictícios e servem para demonstração acadêmica. Para usar dados reais, substitua as linhas da aba base_processos mantendo os nomes das colunas.
+Os dados são fictícios e servem para demonstração acadêmica. Não substitua apenas a planilha por dados reais: os enriquecimentos sintéticos precisam ser trocados por integrações validadas, em ambiente privado e com governança apropriada.
 
 ATUALIZAÇÃO - CAMPOS PETSUS
 
@@ -125,7 +140,7 @@ Segurança aplicada:
 Como criar o primeiro gestor:
 1) Dentro da pasta do projeto, execute:
    py criar_gestor.py
-2) Informe CPF, nome e senha do gestor.
+2) Informe CPF, nome, e-mail e senha inicial do gestor. A senha inicial deverá ser trocada no primeiro acesso.
 3) Depois rode normalmente:
    py -m streamlit run app.py
 
@@ -133,6 +148,7 @@ Também é possível provisionar o primeiro gestor por variáveis de ambiente:
 - PETSUS_GESTOR_CPF
 - PETSUS_GESTOR_SENHA
 - PETSUS_GESTOR_NOME (opcional)
+- PETSUS_GESTOR_EMAIL (necessário para segundo fator e recuperação)
 - PETSUS_GESTOR_DATA_NASCIMENTO (opcional, formato AAAA-MM-DD; necessário para recuperação automática da senha do gestor)
 
 RECUPERAÇÃO DE SENHA
@@ -140,10 +156,10 @@ RECUPERAÇÃO DE SENHA
 Na tela de autenticação, use a aba "Recuperar senha". O sistema confirma CPF, e-mail cadastrado e data de nascimento, envia um código de seis dígitos ao e-mail e permite definir uma nova senha. A data de nascimento é armazenada como hash. Contas criadas antes desta funcionalidade precisam ter essa informação atualizada antes de usar a recuperação automática.
 
 Cadastro de usuário comum:
-- O cadastro de usuário comum pede apenas CPF e senha. O CPF precisa existir na base carregada pelo sistema; o paciente_id é identificado automaticamente.
+- O cadastro de usuário comum pede CPF, e-mail, data de nascimento e senha, com verificação por código enviado ao e-mail. O CPF precisa existir na base carregada; o paciente_id é identificado automaticamente.
 - Se a fonte trouxer `cpf`, `cpf_completo` ou `cpf_paciente`, esse CPF completo é usado diretamente.
 - Como a planilha acadêmica original contém apenas `cpf_mascarado`, esta versão cria CPFs completos de demonstração, estáveis e propositalmente não válidos como CPF real. Eles servem apenas para testes.
-- Em produção, substitua a base fictícia por uma fonte protegida com CPF completo real e restrinja o acesso conforme a LGPD.
+- O uso real depende de fontes protegidas e integrações validadas, substituição dos cenários sintéticos e definição dos responsáveis por acesso, revisão e retenção.
 
 Arquivos locais de autenticação criados na primeira execução:
 - usuarios.db: banco SQLite das contas.

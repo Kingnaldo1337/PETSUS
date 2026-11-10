@@ -3,8 +3,14 @@ toolbarMode = "minimal"
 
 [theme]
 base="light"
-primaryColor="#125CC9"
-backgroundColor="#F5F7FB"
+primaryColor="#087F8C"
+backgroundColor="#F4F7FC"
 secondaryBackgroundColor="#FFFFFF"
-textColor="#0B2459"
+textColor="#122C50"
 font="sans serif"
+
+[client]
+toolbarMode="viewer"
+
+[browser]
+gatherUsageStats=false

@@ -1,32 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
-from html import escape
-import re
-import zlib
-import unicodedata
+import secrets
 
 import pandas as pd
 import streamlit as st
 
-from dashboard.charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
-from dashboard.ui import br_float, br_int, br_money, fmt_periodo, insight_card, mask_cpf, metric_card, multiselect_sidebar, pct, section_title, to_excel_bytes, transparency_footer, feedback_widget
+from dashboard.ui import br_int, multiselect_sidebar, pct
 from petsus.auth.application import AuthStore, logout, render_auth_gate
 from petsus.access import AccessScopeError, restrict_data_for_user
 from petsus.config import (
     DATA_FILE,
     DATABASE_FILE,
-    LIMITE_210_SM_2026,
-    REQUIRED_COLUMNS,
-    DATA_CORTE_CALCULOS,
-    PROXIMA_ATUALIZACAO,
-    FEEDBACK_URL,
+    current_reference_date,
 )
 from petsus.data.filters import DashboardFilters, apply_filters as filter_data
-from petsus.data.loader import DataLoadError, load_process_data
 from petsus.data.metrics import calculate_kpis
+from petsus.dashboard.app_services import load_data, normalize_text
+from petsus.governance import GovernanceStore
+from petsus.dashboard.accessibility import render_accessibility_controls
+from petsus.dashboard.patient import render_patient_page
+from petsus.dashboard.patient_ui import icon, render_portal_header, render_portal_navigation, render_portal_sidebar, render_portal_styles
+from petsus.dashboard.support import data_metadata, render_support_page
 from petsus.dashboard.navigation import navigation_for, subtitle_for
-from petsus.dashboard.app_services import (_attach_full_cpf, _cpf_digits, _cpf_checksum_valid, _format_cpf, enrich_petsus_fields, enrich_process_tracking, extract_dcb, load_data, stable_choice, stable_int, normalize_text)
 from dashboard.views import render_pages as render_dashboard_page
 
 st.set_page_config(
@@ -236,278 +231,142 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# Leitura dos dados e autenticação
+# Leitura e utilitários
 # -----------------------------------------------------------------------------
-DATA_SCHEMA_VERSION = "dual-tracking-v2-no-technical-brand"
+DATA_SCHEMA_VERSION = "feedback-v4"
+REFERENCE_DATE = current_reference_date().isoformat()
 base_all = load_data(
-    DATA_FILE,
-    DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
-    DATA_SCHEMA_VERSION,
+    DATA_FILE, DATA_FILE.stat().st_mtime_ns if DATA_FILE.exists() else 0,
+    DATA_SCHEMA_VERSION, REFERENCE_DATE,
 )
 auth_store = AuthStore(DATABASE_FILE)
 auth_user = render_auth_gate(auth_store, base_all)
-
+render_accessibility_controls(show_sidebar=False)
 try:
     base = restrict_data_for_user(base_all, auth_user)
 except AccessScopeError as exc:
     st.error(str(exc))
-    st.stop()
+    # Uma falha no vínculo mantém ajuda e saída disponíveis, sem liberar dados.
+    base = base_all.iloc[0:0].copy()
 
-base_total = len(base)
-base_cost_total = float(base["custo_estimado"].sum())
-min_date = base["data_ajuizamento"].min().date()
-max_date = base["data_ajuizamento"].max().date()
+governance = GovernanceStore(DATABASE_FILE)
+metadata = data_metadata(DATA_FILE)
+render_portal_styles(is_manager=auth_user.is_manager)
 
-# -----------------------------------------------------------------------------
-# Utilitários da interface
-# -----------------------------------------------------------------------------
+FILTER_GROUPS = {
+    "Filtros demográficos": (
+        ("Sexo", "sexo"), ("Faixa etária", "faixa_etaria"),
+        ("Condição clínica", "condicao_clinica"), ("SUS exclusivo", "sus_exclusivo"),
+        ("Renda familiar", "renda_familiar"),
+    ),
+    "Filtros geográficos": (("Região", "regiao"), ("UF", "uf"), ("Município", "municipio")),
+    "Filtros processuais": (
+        ("Natureza", "natureza"), ("Tipo de demanda", "tipo_demanda"),
+        ("Item demandado", "item_demandado"), ("Especialidade", "especialidade"),
+        ("Esfera judicial", "esfera"), ("Fase processual", "fase_processual"),
+        ("Desfecho", "desfecho"), ("Liminar concedida", "liminar"), ("Pedido urgente", "urgente"),
+        ("Causa da judicialização", "causa_judicializacao"),
+    ),
+    "Filtros de andamento": (
+        ("Etapa judicial", "etapa_judicial"), ("Cumprimento na saúde", "etapa_saude"),
+        ("Status do acompanhamento", "status_andamento"), ("Prazo vencido", "indicador_atraso"),
+    ),
+    "Filtros de medicamentos": (
+        ("Princípio ativo (DCB)", "medicamento_dcb"), ("Código da doença (CID)", "cid"),
+        ("Incorporado à RENAME", "rename_incorporado"), ("Componente SUS", "componente_sus"),
+        ("Grupo de financiamento", "grupo_sus"), ("Protocolo aplicável (PCDT)", "pcdt_aplicavel"),
+        ("Protocolo de referência", "pcdt_referencia"), ("Competência judicial", "competencia_petsus"),
+        ("Réu sugerido", "reu_sugerido"),
+    ),
+}
 FILTER_WIDGET_KEYS = (
     "filter_search", "filter_patients", "header_periodo",
-    "filter_sexo", "filter_faixa_etaria", "filter_condicao_clinica",
-    "filter_sus_exclusivo", "filter_renda_familiar", "filter_regiao",
-    "filter_uf", "filter_municipio", "filter_natureza",
-    "filter_tipo_demanda", "filter_item_demandado", "filter_especialidade",
-    "filter_esfera", "filter_fase_processual", "filter_desfecho",
-    "filter_liminar", "filter_urgente", "filter_etapa_judicial",
-    "filter_etapa_saude", "filter_status_andamento", "filter_indicador_atraso",
-    "filter_medicamento_dcb", "filter_cid", "filter_rename_incorporado",
-    "filter_componente_sus", "filter_grupo_sus", "filter_pcdt_aplicavel",
-    "filter_pcdt_referencia", "filter_competencia_petsus", "filter_reu_sugerido",
+    *(f"filter_{column}" for fields in FILTER_GROUPS.values() for _, column in fields),
 )
 
 
 def clear_dashboard_filters() -> None:
-    for widget_key in FILTER_WIDGET_KEYS:
-        st.session_state.pop(widget_key, None)
+    for key in FILTER_WIDGET_KEYS:
+        st.session_state.pop(key, None)
 
 
+selected_fields = {}
+selected_patient_ids = []
+search = ""
 with st.sidebar:
-    st.markdown(
-        '<div class="sidebar-logo"><div class="icon">⚖️➕</div><div class="title">SAÚDE PÚBLICA</div><div class="subtitle">Judicialização na Saúde</div></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"<div style='padding:.15rem 0 .55rem'><b>{escape(auth_user.name)}</b><br>"
-        f"<span style='opacity:.82;font-size:.86rem'>{'Gestor' if auth_user.is_manager else 'Usuário'} · {escape(auth_user.cpf_display)}</span></div>",
-        unsafe_allow_html=True,
-    )
+    render_portal_sidebar(auth_user)
+    page_labels, page_map = navigation_for(auth_user.is_manager)
+    page_label = render_portal_navigation(page_labels)
+    pagina = page_map[page_label]
+    if not auth_user.is_manager:
+        st.markdown(f'<div class="patient-sidebar-note">{icon("lock",13)} Um espaço seguro para acompanhar os seus pedidos.</div>', unsafe_allow_html=True)
+    if auth_user.is_manager and pagina not in ("Gestão interna", "Ajuda e feedback"):
+        st.divider()
+        st.markdown('<div class="patient-sidebar-label">REFINAR ANÁLISE</div><div class="manager-filter-caption">Ajuste os filtros para explorar os indicadores.</div>', unsafe_allow_html=True)
+        st.button("Limpar todos os filtros", key="clear_filters_button", on_click=clear_dashboard_filters, use_container_width=True)
+        search = st.text_input("Buscar paciente / CPF / processo", key="filter_search", placeholder="Nome, código ou número do processo")
+        if len(normalize_text(search)) >= 2:
+            matches = base[base["_search"].str.contains(normalize_text(search), regex=False, na=False)]
+            people = matches[["paciente_id", "paciente", "cpf"]].drop_duplicates("paciente_id").sort_values("paciente").head(150)
+            labels = {f"{row.paciente} · {row.paciente_id} · {AuthStore.mask_cpf(row.cpf)}": str(row.paciente_id) for row in people.itertuples(index=False)}
+            chosen = st.multiselect("Selecionar paciente encontrado", list(labels), key="filter_patients", placeholder="Opcional")
+            selected_patient_ids = [labels[value] for value in chosen]
+            st.caption("Resultados analíticos de grupos com menos de cinco pacientes são protegidos. Use Andamento para a consulta operacional de um processo.")
+        for group, fields in FILTER_GROUPS.items():
+            page_groups = {
+                "Visão Geral": {"Filtros processuais"},
+                "Andamento": {"Filtros processuais", "Filtros de andamento"},
+                "Demandas": {"Filtros processuais"},
+                "Medicamentos": {"Filtros de medicamentos"},
+                "Competência": {"Filtros de medicamentos", "Filtros geográficos"},
+                "Custos": {"Filtros processuais", "Filtros de medicamentos"},
+                "Prevenção": {"Filtros processuais", "Filtros geográficos"},
+                "Geografia": {"Filtros geográficos"},
+                "Pacientes": {"Filtros demográficos", "Filtros geográficos"},
+            }
+            if group not in page_groups.get(pagina, set(FILTER_GROUPS)):
+                continue
+            with st.expander(group):
+                source = base[base["medicamento_petsus"] == "Sim"] if group == "Filtros de medicamentos" else base
+                for label, column in fields:
+                    if column in source.columns:
+                        selected_fields[column] = tuple(multiselect_sidebar(label, source, column))
     if st.button("Sair", use_container_width=True, key="logout_button"):
         logout()
 
-    page_labels, page_map = navigation_for(auth_user.is_manager)
-    page_label = st.radio("Navegação", page_labels, label_visibility="collapsed")
-    pagina = page_map[page_label]
+render_portal_header(page_label, subtitle_for(pagina, auth_user.is_manager), metadata, REFERENCE_DATE, is_manager=auth_user.is_manager)
+visit_token = st.session_state.setdefault("usage_visit_token", secrets.token_urlsafe(24))
+governance.record_page_view(auth_user.role, pagina, visit_token)
 
-    busca_paciente = ""
-    paciente_ids_sel: list[str] = []
-    processo_paciente_sel: list[str] = []
+if pagina == "Ajuda e feedback":
+    render_support_page(auth_user, governance, base, metadata)
+elif not auth_user.is_manager:
+    render_patient_page(pagina, base)
+else:
+    dff = base
+    if pagina != "Gestão interna":
+        if base.empty:
+            st.info("Não há registros disponíveis.")
+            st.stop()
+        min_date = base["data_ajuizamento"].min().date()
+        max_date = base["data_ajuizamento"].max().date()
+        with st.container(key="manager_filterbar"):
+            period_column, count_column = st.columns([3, 1], vertical_alignment="bottom")
+            with period_column:
+                dates = st.date_input("Período de ajuizamento", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY", key="header_periodo", help="Seleciona a data de entrada dos processos. Os cálculos usam a referência indicada no cabeçalho, sem reconstruir uma situação histórica.")
+        if isinstance(dates, (tuple, list)):
+            start, end = (dates[0], dates[-1]) if dates else (min_date, max_date)
+        else:
+            start = end = dates
+        dff = filter_data(base, DashboardFilters(start_date=start, end_date=end, search=normalize_text(search), patient_ids=tuple(selected_patient_ids), fields=selected_fields))
+        with count_column:
+            protected = pagina != "Andamento" and dff["paciente_id"].nunique() < 5
+            count_label = "Contagem protegida" if protected and not dff.empty else f"{br_int(len(dff))} registros"
+            st.markdown(f'<div class="filter-pill">{count_label}</div>', unsafe_allow_html=True)
+        if dff.empty:
+            st.warning("Nenhum registro encontrado. Ajuste ou limpe os filtros.")
+            st.stop()
+    k = calculate_kpis(dff)
+    render_dashboard_page(pagina, dff, base, k, pct(len(dff), len(base)), pct(k["custo"], base["custo_estimado"].sum()), selected_patient_ids, auth_store=auth_store)
 
-    if auth_user.is_manager:
-        st.markdown("---")
-        st.subheader("Filtros")
-        st.markdown('<div class="sidebar-hint">Os gráficos e indicadores mudam automaticamente conforme os filtros.</div>', unsafe_allow_html=True)
-        st.button(
-            "Limpar todos os filtros",
-            key="clear_filters_button",
-            on_click=clear_dashboard_filters,
-            use_container_width=True,
-            help="Restaura a busca, o período e todas as seleções de filtros.",
-        )
-
-        busca_paciente = st.text_input(
-            "Buscar paciente / CPF / processo",
-            key="filter_search",
-            placeholder="Ex.: Maria, PAC00042 ou PROC-2025",
-            help="Esse campo procura em nome, código do paciente, CPF completo e número do processo.",
-        )
-        if len(normalize_text(busca_paciente)) >= 2:
-            matches = base[base["_search"].str.contains(normalize_text(busca_paciente), regex=False, na=False)].copy()
-            pessoas = (
-                matches[["paciente_id", "paciente", "cpf"]]
-                .drop_duplicates("paciente_id")
-                .sort_values("paciente")
-                .head(150)
-            )
-            label_to_id = {
-                f"{row.paciente} — {row.paciente_id} — {mask_cpf(row.cpf)}": row.paciente_id
-                for row in pessoas.itertuples(index=False)
-            }
-            escolhidos = st.multiselect(
-                "Selecionar paciente encontrado",
-                list(label_to_id.keys()),
-                key="filter_patients",
-                placeholder="Opcional",
-                help="Seleciona um ou mais pacientes encontrados para limitar todos os indicadores e tabelas aos seus processos.",
-            )
-            paciente_ids_sel = [label_to_id[x] for x in escolhidos]
-            if len(matches["paciente_id"].unique()) > 150:
-                st.caption("Mostrando os 150 primeiros pacientes encontrados. Refine a busca para localizar um paciente específico.")
-
-        with st.expander("Filtros demográficos", expanded=False):
-            sexo_sel = multiselect_sidebar("Sexo", base, "sexo")
-            faixa_sel = multiselect_sidebar("Faixa etária", base, "faixa_etaria")
-            condicao_sel = multiselect_sidebar("Condição clínica", base, "condicao_clinica")
-            sus_sel = multiselect_sidebar("SUS exclusivo", base, "sus_exclusivo")
-            renda_sel = multiselect_sidebar("Renda familiar", base, "renda_familiar")
-
-        with st.expander("Filtros geográficos", expanded=False):
-            regiao_sel = multiselect_sidebar("Região", base, "regiao")
-            uf_sel = multiselect_sidebar("UF", base, "uf")
-            mun_sel = multiselect_sidebar("Município", base, "municipio")
-
-        with st.expander("Filtros processuais", expanded=False):
-            natureza_sel = multiselect_sidebar("Natureza", base, "natureza")
-            tipo_sel = multiselect_sidebar("Tipo de demanda", base, "tipo_demanda")
-            item_sel = multiselect_sidebar("Item demandado", base, "item_demandado")
-            esp_sel = multiselect_sidebar("Especialidade", base, "especialidade")
-            esfera_sel = multiselect_sidebar("Esfera", base, "esfera")
-            fase_sel = multiselect_sidebar("Fase processual", base, "fase_processual")
-            desfecho_sel = multiselect_sidebar("Desfecho", base, "desfecho")
-            liminar_sel = multiselect_sidebar("Liminar", base, "liminar")
-            urgente_sel = multiselect_sidebar("Urgente", base, "urgente")
-
-        with st.expander("Filtros de andamento", expanded=False):
-            etapa_judicial_sel = multiselect_sidebar("Etapa judicial", base, "etapa_judicial")
-            etapa_saude_sel = multiselect_sidebar("Cumprimento na saúde", base, "etapa_saude")
-            status_andamento_sel = multiselect_sidebar("Status do acompanhamento", base, "status_andamento")
-            atraso_sel = multiselect_sidebar("Prazo vencido", base, "indicador_atraso")
-
-        med_ref = base[base["medicamento_petsus"] == "Sim"]
-        with st.expander("Filtros PetSUS", expanded=False):
-            dcb_sel = multiselect_sidebar("DCB / princípio ativo", med_ref, "medicamento_dcb")
-            cid_sel = multiselect_sidebar("CID", med_ref, "cid")
-            rename_sel = multiselect_sidebar("Incorporado à RENAME", med_ref, "rename_incorporado")
-            componente_sel = multiselect_sidebar("Componente SUS", med_ref, "componente_sus")
-            grupo_sel = multiselect_sidebar("Grupo de financiamento", med_ref, "grupo_sus")
-            pcdt_sel = multiselect_sidebar("PCDT aplicável", med_ref, "pcdt_aplicavel")
-            pcdt_ref_sel = multiselect_sidebar("PCDT de referência", med_ref, "pcdt_referencia")
-            competencia_sel = multiselect_sidebar("Competência PetSUS", med_ref, "competencia_petsus")
-            reu_sel = multiselect_sidebar("Réu sugerido", med_ref, "reu_sugerido")
-
-        st.markdown("---")
-        st.caption("Use o botão acima para restaurar todos os filtros.")
-    else:
-        paciente_ids_sel = [str(auth_user.patient_id)]
-        st.markdown("---")
-        st.caption("🔒 **Área do Paciente**")
-        st.markdown(
-            '<div class="sidebar-hint">Seus dados e processos estão protegidos e restritos ao seu perfil pessoal.</div>',
-            unsafe_allow_html=True,
-        )
-        processos_paciente = sorted(base["processo_id"].dropna().unique().tolist())
-        if len(processos_paciente) > 1:
-            escolha = st.selectbox(
-                "Filtrar por processo",
-                ["Todos os meus processos"] + processos_paciente,
-                key="filtro_processo_paciente",
-                help="Selecione um processo específico para visualizar.",
-            )
-            if escolha != "Todos os meus processos":
-                processo_paciente_sel = [escolha]
-
-        sexo_sel = []
-        faixa_sel = []
-        condicao_sel = []
-        sus_sel = []
-        renda_sel = []
-        regiao_sel = []
-        uf_sel = []
-        mun_sel = []
-        natureza_sel = []
-        tipo_sel = []
-        item_sel = []
-        esp_sel = []
-        esfera_sel = []
-        fase_sel = []
-        desfecho_sel = []
-        liminar_sel = []
-        urgente_sel = []
-        etapa_judicial_sel = []
-        etapa_saude_sel = []
-        status_andamento_sel = []
-        atraso_sel = []
-        dcb_sel = []
-        cid_sel = []
-        rename_sel = []
-        componente_sel = []
-        grupo_sel = []
-        pcdt_sel = []
-        pcdt_ref_sel = []
-        competencia_sel = []
-        reu_sel = []
-
-
-# -----------------------------------------------------------------------------
-# Cabeçalho
-# -----------------------------------------------------------------------------
-h1, h2, h3 = st.columns([7.7, 2.2, 1.8])
-with h1:
-    dashboard_title = "Dashboard de Judicialização na Saúde" if auth_user.is_manager else "Meus Dados — Judicialização na Saúde"
-    st.markdown(f'<div class="title-main">{dashboard_title}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="title-sub">{subtitle_for(pagina, auth_user.is_manager)}</div>', unsafe_allow_html=True)
-with h2:
-    periodo_sel = st.date_input(
-        "Período",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-        format="DD/MM/YYYY",
-        label_visibility="collapsed",
-        key="header_periodo",
-    )
-with h3:
-    registros_header = st.empty()
-
-period_start, period_end = (
-    periodo_sel if isinstance(periodo_sel, tuple) else (periodo_sel, periodo_sel)
-)
-active_filters = DashboardFilters(
-    start_date=period_start,
-    end_date=period_end,
-    search=normalize_text(busca_paciente),
-    patient_ids=tuple(str(value) for value in paciente_ids_sel),
-    fields={
-        "processo_id": tuple(processo_paciente_sel),
-        "sexo": tuple(sexo_sel), "faixa_etaria": tuple(faixa_sel),
-        "condicao_clinica": tuple(condicao_sel), "sus_exclusivo": tuple(sus_sel),
-        "renda_familiar": tuple(renda_sel), "regiao": tuple(regiao_sel),
-        "uf": tuple(uf_sel), "municipio": tuple(mun_sel),
-        "natureza": tuple(natureza_sel), "tipo_demanda": tuple(tipo_sel),
-        "item_demandado": tuple(item_sel), "especialidade": tuple(esp_sel),
-        "esfera": tuple(esfera_sel), "fase_processual": tuple(fase_sel),
-        "desfecho": tuple(desfecho_sel), "liminar": tuple(liminar_sel),
-        "urgente": tuple(urgente_sel), "etapa_judicial": tuple(etapa_judicial_sel),
-        "etapa_saude": tuple(etapa_saude_sel), "status_andamento": tuple(status_andamento_sel),
-        "indicador_atraso": tuple(atraso_sel), "medicamento_dcb": tuple(dcb_sel),
-        "cid": tuple(cid_sel), "rename_incorporado": tuple(rename_sel),
-        "componente_sus": tuple(componente_sel), "grupo_sus": tuple(grupo_sel),
-        "pcdt_aplicavel": tuple(pcdt_sel), "pcdt_referencia": tuple(pcdt_ref_sel),
-        "competencia_petsus": tuple(competencia_sel), "reu_sugerido": tuple(reu_sel),
-    },
-)
-dff = filter_data(base, active_filters)
-registros_header.markdown(f'<div class="filter-pill">🔎&nbsp;&nbsp;{br_int(len(dff))} registros</div>', unsafe_allow_html=True)
-
-if dff.empty:
-    st.warning("Nenhum registro foi encontrado com os filtros selecionados. Ajuste ou limpe os filtros na barra lateral.")
-    st.stop()
-
-# -----------------------------------------------------------------------------
-# KPIs baseados no filtro
-# -----------------------------------------------------------------------------
-k = calculate_kpis(dff)
-participacao = pct(len(dff), base_total)
-part_custo = pct(k["custo"], base_cost_total)
-render_dashboard_page(
-    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel,
-    auth_store=auth_store,
-)
-
-st.markdown(
-    '<div class="footer-note">ⓘ Dados fictícios para fins acadêmicos/demonstração. Os campos PetSUS adicionados nesta versão são sintéticos e não substituem consulta oficial ao CNJ, RENAME ou CMED/Anvisa.</div>',
-    unsafe_allow_html=True,
-)
-
-# Eixo 6 — Governança: Selo de Transparência Temporal e Botão de Feedback
-transparency_footer(DATA_FILE, DATA_CORTE_CALCULOS, PROXIMA_ATUALIZACAO)
-feedback_widget(FEEDBACK_URL)
+st.markdown(f'<div class="patient-footer">{icon("lock",12)} DASHJUS · Judicialização na Saúde</div>', unsafe_allow_html=True)
