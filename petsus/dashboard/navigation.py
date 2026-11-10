@@ -5,7 +5,7 @@ import unicodedata
 
 MANAGER_PAGES = (
     "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
-    "Custos", "Prevenção", "Geografia", "Pacientes", "Base de Dados", "Gestão interna", "Ajuda e feedback",
+    "Custos", "Prevenção", "Geografia", "Pacientes", "Gestão interna", "Ajuda e feedback",
 )
 USER_PAGE_MAP = {
     "Meu acompanhamento": "Meu acompanhamento",
