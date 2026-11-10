@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from petsus.auth.email import send_verification_code as _send_verification_email
+from petsus.auth.email import mfa_required, smtp_configured
 from petsus.auth.models import AuthUser, ROLE_MANAGER, ROLE_USER
 from petsus.auth.registration import (
     OTP_MAX_ATTEMPTS,
@@ -24,6 +25,7 @@ from petsus.auth.registration import (
     otp_digest,
 )
 from petsus.auth.security import hash_password, verify_password
+from petsus.dashboard.auth_ui import render_auth_intro, render_auth_shell
 
 send_verification_code = _send_verification_email
 
@@ -39,7 +41,9 @@ def _new_registration_challenge(
     return new_registration_challenge(cpf, email, password_hash, patient_id, name, birth_date)
 
 
-def _new_password_reset_challenge(user_id: int, email: str) -> tuple[dict[str, object], str]:
+def _new_password_reset_challenge(
+    user_id: int, email: str, session_version: int | None = None
+) -> tuple[dict[str, object], str]:
     code = f"{secrets.randbelow(1_000_000):06d}"
     salt = secrets.token_hex(16)
     challenge: dict[str, object] = {
@@ -49,6 +53,7 @@ def _new_password_reset_challenge(user_id: int, email: str) -> tuple[dict[str, o
         "code_digest": _otp_digest(code, salt),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
         "attempts": 0,
+        "session_version": session_version,
     }
     return challenge, code
 
@@ -104,10 +109,32 @@ class AuthStore:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
             if "birth_date_lookup" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN birth_date_lookup TEXT")
+            if "must_change_password" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE users SET must_change_password = 1 WHERE role = 'gestor'")
+            if "session_version" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique "
                 "ON users(email) WHERE email IS NOT NULL"
             )
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS auth_audit (
+                    id INTEGER PRIMARY KEY, actor_id INTEGER, subject_id INTEGER,
+                    event TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS login_failures (
+                    id INTEGER PRIMARY KEY, account_key TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_login_failures_key_time ON login_failures(account_key, created_at);
+                CREATE INDEX IF NOT EXISTS idx_auth_audit_subject_event_time ON auth_audit(subject_id, event, created_at);
+                CREATE TABLE IF NOT EXISTS login_challenges (
+                    token_digest TEXT PRIMARY KEY, user_id INTEGER NOT NULL, code_salt TEXT NOT NULL,
+                    code_digest TEXT NOT NULL, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+                    session_version INTEGER NOT NULL
+                );
+            """)
 
     @staticmethod
     def normalize_cpf(value: str) -> str:
@@ -152,19 +179,57 @@ class AuthStore:
             role=str(row["role"]),
             patient_id=row["patient_id"],
             cpf_display=str(row["cpf_display"]),
+            must_change_password=bool(row["must_change_password"]),
+            session_version=int(row["session_version"]),
         )
+
+    @staticmethod
+    def _audit(
+        conn: sqlite3.Connection, event: str, *, actor_id: int | None = None,
+        subject_id: int | None = None, outcome: str = "success", detail: str = "",
+    ) -> None:
+        conn.execute(
+            "INSERT INTO auth_audit(actor_id, subject_id, event, outcome, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (actor_id, subject_id, event, outcome, detail, datetime.now(timezone.utc).isoformat()),
+        )
+
+    def record_auth_event(self, user_id: int, event: str) -> None:
+        if event not in {"login", "logout", "mfa_delivery_failed"}:
+            raise ValueError("Evento de autenticação inválido.")
+        with self._connect() as conn:
+            self._audit(conn, event, actor_id=int(user_id), subject_id=int(user_id),
+                        outcome="failed" if event == "mfa_delivery_failed" else "success")
 
     def authenticate(self, cpf: str, password: str) -> AuthUser | None:
         normalized = self.normalize_cpf(cpf)
         if len(normalized) != 11 or not password:
+            with self._connect() as conn:
+                self._audit(conn, "password_check", outcome="failed")
             return None
+        lookup = self._lookup_key(normalized)
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
         with self._connect() as conn:
+            failures = conn.execute(
+                "SELECT COUNT(*) FROM login_failures WHERE account_key = ? AND created_at >= ?",
+                (lookup, cutoff),
+            ).fetchone()[0]
+            if failures >= 10:
+                self._audit(conn, "password_check", outcome="rate_limited")
+                return None
             row = conn.execute(
                 "SELECT * FROM users WHERE cpf_lookup = ? AND active = 1",
-                (self._lookup_key(normalized),),
+                (lookup,),
             ).fetchone()
-        if row is None or not self._verify_password(password, row["password_hash"]):
-            return None
+            valid = row is not None and self._verify_password(password, row["password_hash"])
+            subject_id = int(row["id"]) if row is not None else None
+            self._audit(conn, "password_check", subject_id=subject_id, outcome="success" if valid else "failed")
+            if not valid:
+                conn.execute(
+                    "INSERT INTO login_failures(account_key, created_at) VALUES (?, ?)",
+                    (lookup, datetime.now(timezone.utc).isoformat()),
+                )
+                return None
+            conn.execute("DELETE FROM login_failures WHERE account_key = ?", (lookup,))
         return self._row_to_user(row)
 
     def get_active_user(self, user_id: int) -> AuthUser | None:
@@ -175,6 +240,121 @@ class AuthStore:
             ).fetchone()
         return self._row_to_user(row) if row is not None else None
 
+    @staticmethod
+    def _require_active_manager(conn: sqlite3.Connection, manager_id: int) -> None:
+        manager = conn.execute(
+            "SELECT 1 FROM users WHERE id = ? AND role = ? AND active = 1",
+            (int(manager_id), ROLE_MANAGER),
+        ).fetchone()
+        if manager is None:
+            raise ValueError("O gestor responsável pela operação não está ativo.")
+
+    def login_email(self, user_id: int) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT email FROM users WHERE id = ? AND active = 1", (int(user_id),)).fetchone()
+        return str(row["email"]) if row is not None and row["email"] else None
+
+    def start_login_challenge(self, user: AuthUser) -> tuple[str, str]:
+        """Cria um código de uso único. O chamador só anuncia envio após SMTP confirmar."""
+        token = secrets.token_urlsafe(32)
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        salt = secrets.token_hex(16)
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ? AND active = 1", (user.id,)).fetchone()
+            if row is None or int(row["session_version"]) != user.session_version:
+                raise ValueError("A conta foi alterada. Entre novamente.")
+            if not is_valid_email(str(row["email"] or "")):
+                raise ValueError("A conta precisa de e-mail válido. Procure a administração para atualizá-la.")
+            # Tentativas persistem mesmo ao reiniciar o navegador.
+            since = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+            issues = conn.execute(
+                "SELECT COUNT(*) FROM auth_audit WHERE subject_id = ? AND event = 'mfa_issued' AND created_at >= ?",
+                (user.id, since),
+            ).fetchone()[0]
+            if issues >= 5:
+                raise ValueError("Limite de códigos atingido. Aguarde 15 minutos para tentar novamente.")
+            conn.execute("DELETE FROM login_challenges WHERE user_id = ? OR expires_at < ?", (user.id, datetime.now(timezone.utc).isoformat()))
+            conn.execute(
+                "INSERT INTO login_challenges(token_digest, user_id, code_salt, code_digest, expires_at, session_version) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (hashlib.sha256(token.encode()).hexdigest(), user.id, salt, _otp_digest(code, salt), expires, user.session_version),
+            )
+            self._audit(conn, "mfa_issued", subject_id=user.id)
+        return token, code
+
+    def cancel_login_challenge(self, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM login_challenges WHERE token_digest = ?", (hashlib.sha256(token.encode()).hexdigest(),))
+
+    def verify_login_challenge(self, token: str, code: str) -> AuthUser:
+        token_digest = hashlib.sha256(token.encode()).hexdigest()
+        error = "Código inválido ou expirado. Inicie o acesso novamente."
+        result = None
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            pending = conn.execute("SELECT * FROM login_challenges WHERE token_digest = ?", (token_digest,)).fetchone()
+            if pending is not None:
+                user = conn.execute("SELECT * FROM users WHERE id = ? AND active = 1", (pending["user_id"],)).fetchone()
+                expired = datetime.now(timezone.utc) > datetime.fromisoformat(pending["expires_at"])
+                account_changed = user is None or int(user["session_version"]) != int(pending["session_version"])
+                attempts = int(pending["attempts"]) + 1
+                correct = len(code.strip()) == 6 and code.strip().isdigit() and hmac.compare_digest(
+                    _otp_digest(code.strip(), pending["code_salt"]), pending["code_digest"]
+                )
+                if correct and not expired and not account_changed and attempts <= OTP_MAX_ATTEMPTS:
+                    result = self._row_to_user(user)
+                    conn.execute("DELETE FROM login_challenges WHERE token_digest = ?", (token_digest,))
+                    self._audit(conn, "login", actor_id=result.id, subject_id=result.id, detail="email_second_factor")
+                else:
+                    self._audit(conn, "mfa_check", subject_id=int(pending["user_id"]), outcome="failed")
+                    if expired or account_changed or attempts >= OTP_MAX_ATTEMPTS:
+                        conn.execute("DELETE FROM login_challenges WHERE token_digest = ?", (token_digest,))
+                    else:
+                        conn.execute("UPDATE login_challenges SET attempts = ? WHERE token_digest = ?", (attempts, token_digest))
+                        error = f"Código inválido. Restam {OTP_MAX_ATTEMPTS - attempts} tentativas."
+        if result is None:
+            raise ValueError(error)
+        return result
+
+    def list_accounts(self, acting_manager_id: int, limit: int = 500) -> list[dict[str, object]]:
+        """Revisão mínima: não inclui nome, e-mail, CPF completo ou vínculo de paciente."""
+        with self._connect() as conn:
+            self._require_active_manager(conn, acting_manager_id)
+            rows = conn.execute(
+                "SELECT id, cpf_display, role, active, must_change_password, created_at, "
+                "(SELECT MAX(created_at) FROM auth_audit WHERE subject_id = users.id AND event = 'login') AS last_login "
+                "FROM users ORDER BY active DESC, id LIMIT ?", (max(1, min(int(limit), 500)),),
+            ).fetchall()
+            self._audit(conn, "account_access_review", actor_id=acting_manager_id)
+        return [dict(row) for row in rows]
+
+    def set_account_active(self, user_id: int, active: bool, acting_manager_id: int) -> None:
+        if int(user_id) == int(acting_manager_id) and not active:
+            raise ValueError("Você não pode revogar a própria conta enquanto está conectado.")
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_active_manager(conn, acting_manager_id)
+            target = conn.execute("SELECT role, active FROM users WHERE id = ?", (int(user_id),)).fetchone()
+            if target is None:
+                raise ValueError("Conta não encontrada.")
+            if not active and target["role"] == ROLE_MANAGER and target["active"]:
+                count = conn.execute("SELECT COUNT(*) FROM users WHERE role = ? AND active = 1", (ROLE_MANAGER,)).fetchone()[0]
+                if count <= 1:
+                    raise ValueError("O último gestor ativo não pode ter o acesso revogado.")
+            conn.execute("UPDATE users SET active = ?, session_version = session_version + 1 WHERE id = ?", (int(active), int(user_id)))
+            conn.execute("DELETE FROM login_challenges WHERE user_id = ?", (int(user_id),))
+            self._audit(conn, "access_activated" if active else "access_revoked", actor_id=acting_manager_id, subject_id=int(user_id))
+
+    def audit_events(self, acting_manager_id: int, limit: int = 200) -> list[dict[str, object]]:
+        with self._connect() as conn:
+            self._require_active_manager(conn, acting_manager_id)
+            rows = conn.execute(
+                "SELECT id, actor_id, subject_id, event, outcome, detail, created_at FROM auth_audit ORDER BY id DESC LIMIT ?",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def create_user(
         self,
         cpf: str,
@@ -184,6 +364,9 @@ class AuthStore:
         patient_id: str | None = None,
         email: str | None = None,
         birth_date: str | None = None,
+        *,
+        must_change_password: bool | None = None,
+        acting_manager_id: int | None = None,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         if len(normalized) != 11:
@@ -191,7 +374,8 @@ class AuthStore:
         if len(password) < 8:
             raise ValueError("A senha deve ter pelo menos 8 caracteres.")
         return self.create_user_with_password_hash(
-            normalized, self._hash_password(password), name, role, patient_id, email, birth_date
+            normalized, self._hash_password(password), name, role, patient_id, email, birth_date,
+            must_change_password=must_change_password, acting_manager_id=acting_manager_id,
         )
 
     def create_user_with_password_hash(
@@ -203,10 +387,15 @@ class AuthStore:
         patient_id: str | None = None,
         email: str | None = None,
         birth_date: str | None = None,
+        *,
+        must_change_password: bool | None = None,
+        acting_manager_id: int | None = None,
     ) -> AuthUser:
         normalized = self.normalize_cpf(cpf)
         normalized_email = normalize_email(email or "") or None
         normalized_birth_date = (birth_date or "").strip()
+        if must_change_password is None:
+            must_change_password = role == ROLE_MANAGER or acting_manager_id is not None
         if len(normalized) != 11:
             raise ValueError("Informe um CPF com 11 dígitos.")
         if not password_hash.startswith("scrypt$"):
@@ -222,10 +411,12 @@ class AuthStore:
 
         try:
             with self._connect() as conn:
+                if acting_manager_id is not None:
+                    self._require_active_manager(conn, acting_manager_id)
                 cursor = conn.execute(
                     """
-                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, birth_date_lookup, active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                    INSERT INTO users (cpf_lookup, cpf_display, password_hash, role, patient_id, name, email, birth_date_lookup, active, created_at, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         self._lookup_key(normalized),
@@ -237,10 +428,12 @@ class AuthStore:
                         normalized_email,
                         self._birth_date_key(normalized_birth_date) if normalized_birth_date else None,
                         datetime.now(timezone.utc).isoformat(),
+                        int(must_change_password),
                     ),
                 )
                 user_id = int(cursor.lastrowid)
                 row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                self._audit(conn, "account_created", actor_id=acting_manager_id, subject_id=user_id, detail=role)
         except sqlite3.IntegrityError as exc:
             message = str(exc).lower()
             if "patient_id" in message:
@@ -271,16 +464,27 @@ class AuthStore:
             return None
         return int(row["id"]), str(row["email"])
 
-    def update_password(self, user_id: int, new_password: str) -> None:
+    def update_password(
+        self, user_id: int, new_password: str, *, expected_session_version: int | None = None
+    ) -> None:
         if len(new_password) < 8:
             raise ValueError("A senha deve ter pelo menos 8 caracteres.")
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            account = conn.execute("SELECT password_hash, session_version FROM users WHERE id = ? AND active = 1", (int(user_id),)).fetchone()
+            if expected_session_version is not None and (account is None or int(account["session_version"]) != expected_session_version):
+                raise ValueError("A conta foi alterada. Inicie o acesso ou a recuperação novamente.")
+            if account is not None and self._verify_password(new_password, account["password_hash"]):
+                raise ValueError("Escolha uma senha diferente da senha atual.")
             cursor = conn.execute(
-                "UPDATE users SET password_hash = ? WHERE id = ? AND active = 1",
+                "UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1 WHERE id = ? AND active = 1",
                 (self._hash_password(new_password), int(user_id)),
             )
             updated_rows = cursor.rowcount
             cursor.close()
+            if updated_rows == 1:
+                conn.execute("DELETE FROM login_challenges WHERE user_id = ?", (int(user_id),))
+                self._audit(conn, "password_changed", actor_id=int(user_id), subject_id=int(user_id))
         if updated_rows != 1:
             raise ValueError("Não foi possível atualizar a senha.")
 
@@ -293,7 +497,7 @@ class AuthStore:
             row = conn.execute(
                 """
                 SELECT id, cpf_display, role, patient_id, name, email,
-                       birth_date_lookup IS NOT NULL AS has_birth_date, active
+                       birth_date_lookup IS NOT NULL AS has_birth_date, active, must_change_password
                 FROM users
                 WHERE cpf_lookup = ?
                 LIMIT 1
@@ -310,6 +514,7 @@ class AuthStore:
         email: str | None = None,
         new_password: str | None = None,
         birth_date: str | None = None,
+        acting_manager_id: int | None = None,
     ) -> None:
         """Atualiza somente os campos administrativos permitidos para uma conta."""
         if expected_role not in {ROLE_USER, ROLE_MANAGER}:
@@ -328,6 +533,7 @@ class AuthStore:
                 raise ValueError("A senha deve ter pelo menos 8 caracteres.")
             updates.append("password_hash = ?")
             values.append(self._hash_password(new_password))
+            updates.append("must_change_password = 1")
         if birth_date is not None:
             try:
                 date.fromisoformat(birth_date)
@@ -338,15 +544,24 @@ class AuthStore:
 
         if not updates:
             raise ValueError("Nenhuma alteração foi informada.")
+        changes = [update.split(" =")[0] for update in updates if "password_hash" not in update]
+        if new_password:
+            changes.append("temporary_password")
+        updates.append("session_version = session_version + 1")
         values.extend((int(user_id), expected_role))
         try:
             with self._connect() as conn:
+                if acting_manager_id is not None:
+                    self._require_active_manager(conn, acting_manager_id)
                 cursor = conn.execute(
                     f"UPDATE users SET {', '.join(updates)} WHERE id = ? AND role = ? AND active = 1",
                     values,
                 )
                 updated_rows = cursor.rowcount
                 cursor.close()
+                if updated_rows == 1:
+                    conn.execute("DELETE FROM login_challenges WHERE user_id = ?", (int(user_id),))
+                    self._audit(conn, "account_updated", actor_id=acting_manager_id, subject_id=int(user_id), detail=",".join(changes))
         except sqlite3.IntegrityError as exc:
             if "email" in str(exc).lower():
                 raise ValueError("Este e-mail já possui uma conta cadastrada.") from exc
@@ -390,6 +605,9 @@ class AuthStore:
             )
             deleted_rows = cursor.rowcount
             cursor.close()
+            if deleted_rows == 1:
+                conn.execute("DELETE FROM login_challenges WHERE user_id = ?", (int(user_id),))
+                self._audit(conn, "account_deleted", actor_id=int(acting_manager_id), subject_id=int(user_id))
         if deleted_rows != 1:
             raise ValueError("Não foi possível excluir a conta.")
 
@@ -405,9 +623,10 @@ class AuthStore:
         password = os.getenv("PETSUS_GESTOR_SENHA", "").strip()
         name = os.getenv("PETSUS_GESTOR_NOME", "Gestor").strip() or "Gestor"
         birth_date = os.getenv("PETSUS_GESTOR_DATA_NASCIMENTO", "").strip() or None
+        email = os.getenv("PETSUS_GESTOR_EMAIL", "").strip() or None
         if cpf and password:
             try:
-                self.create_user(cpf, password, name, ROLE_MANAGER, birth_date=birth_date)
+                self.create_user(cpf, password, name, ROLE_MANAGER, email=email, birth_date=birth_date, must_change_password=True)
             except ValueError:
                 pass
 
@@ -457,94 +676,31 @@ def resolve_patient_for_registration(
 
 def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
     """Render login/register screen and stop execution until authenticated."""
+    st.session_state["_auth_store_path"] = str(store.db_path)
     current = st.session_state.get("auth_user")
     if isinstance(current, dict) and current.get("id"):
         active_user = store.get_active_user(int(current["id"]))
-        if active_user is not None:
+        assurance_ok = not mfa_required() or st.session_state.get("auth_mfa_verified") is True
+        if active_user is not None and current.get("session_version") == active_user.session_version and assurance_ok:
             st.session_state["auth_user"] = active_user.__dict__
+            if active_user.must_change_password:
+                render_auth_shell()
+                with st.container(key="auth_panel"):
+                    _render_required_password_change(store, active_user)
+                st.stop()
             return active_user
         st.session_state.pop("auth_user", None)
+        st.session_state.pop("auth_mfa_verified", None)
 
     store.bootstrap_manager_from_env()
 
-    st.markdown(
-        """
-        <style>
-        .auth-wrap { width: min(100%, 560px); max-width: 560px; min-width: 0; margin: 2.5rem auto .5rem; padding-inline: .5rem; box-sizing: border-box; text-align: center; }
-        .auth-icon { font-size: 3.2rem; }
-        .auth-title { font-size: 2rem; font-weight: 900; color: #0B2459; margin-top: .35rem; }
-        .auth-sub { color: #667085; margin: .35rem 0 1.1rem; }
-        .st-key-auth_panel {
-            width: 100%;
-            min-width: 0;
-            margin-inline: auto;
-        }
-        .st-key-auth_panel [data-testid="stTabs"],
-        div[data-testid="stTabs"] {
-            width: min(100%, 620px) !important;
-            max-width: 620px !important;
-            min-width: 0;
-            margin-inline: auto !important;
-        }
-        .st-key-auth_panel [data-testid="stForm"],
-        div[data-testid="stTabs"] [data-testid="stForm"],
-        div[data-testid="stForm"] {
-            width: min(100%, 620px) !important;
-            max-width: 620px !important;
-            margin-inline: auto !important;
-        }
-        .st-key-auth_panel, .st-key-auth_panel * {
-            box-sizing: border-box;
-        }
-        .st-key-auth_panel p, .st-key-auth_panel label,
-        .st-key-auth_panel [data-testid="stMarkdownContainer"] {
-            min-width: 0;
-            word-break: normal;
-            overflow-wrap: break-word;
-            white-space: normal;
-        }
-        .forgot-password-link { display:inline-block; color:#125CC9 !important; font-size:.92rem; font-weight:650; text-decoration:none; margin:.05rem 0 .45rem; }
-        .forgot-password-link:hover, .forgot-password-link:focus { color:#0B4B93 !important; text-decoration:underline; }
-        .auth-support { width:min(100%, 620px); margin:1.15rem auto .25rem; padding:.85rem 1rem; border-top:1px solid #DDE6F2; color:#667085; font-size:.88rem; line-height:1.55; text-align:center; }
-        .auth-support-title { color:#0B2459; font-weight:800; margin-bottom:.15rem; }
-        .auth-support a { color:#125CC9 !important; font-weight:700; text-decoration:none; white-space:nowrap; }
-        .auth-support a:hover, .auth-support a:focus { color:#0B4B93 !important; text-decoration:underline; }
-        .auth-support-separator { color:#98A2B3; padding:0 .4rem; }
-        @media (max-width: 640px) {
-            .auth-wrap { margin-top: 1rem; padding-inline: .25rem; }
-            .auth-title { font-size: 1.65rem; line-height: 1.15; }
-            .st-key-auth_panel,
-            .st-key-auth_panel [data-testid="stTabs"],
-            div[data-testid="stTabs"] { width: 100% !important; }
-        }
-        </style>
-        <div class="auth-wrap">
-            <div class="auth-icon">⚖️➕</div>
-            <div class="auth-title">Acesso ao Dashboard</div>
-            <div class="auth-sub">Entre com seu CPF e senha. O conteúdo exibido respeita o perfil da conta.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    render_auth_shell()
+    render_auth_intro()
 
     with st.container(key="auth_panel"):
         login_tab, register_tab = st.tabs(["Entrar", "Criar conta"])
         with login_tab:
-            with st.form("login_form", clear_on_submit=False):
-                cpf = st.text_input("CPF", placeholder="000.000.000-00", autocomplete="username")
-                password = st.text_input("Senha", type="password", autocomplete="current-password")
-                st.markdown(
-                    '<a class="forgot-password-link" href="?recover=1">Esqueceu sua senha?</a>',
-                    unsafe_allow_html=True,
-                )
-                submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
-            if submitted:
-                user = store.authenticate(cpf, password)
-                if user is None:
-                    st.error("CPF ou senha inválidos.")
-                else:
-                    st.session_state["auth_user"] = user.__dict__
-                    st.rerun()
+            _render_login(store)
 
         with register_tab:
             st.caption("Cadastro destinado a usuários comuns. Contas de gestor são criadas pela administração.")
@@ -695,7 +851,8 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                         )
                     else:
                         user_id, destination = account
-                        challenge, code = _new_password_reset_challenge(user_id, destination)
+                        reset_user = store.get_active_user(user_id)
+                        challenge, code = _new_password_reset_challenge(user_id, destination, reset_user.session_version if reset_user else -1)
                         try:
                             send_verification_code(destination, code)
                         except (OSError, smtplib.SMTPException, RuntimeError) as exc:
@@ -747,7 +904,10 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
                         st.error("A confirmação da senha não corresponde à nova senha.")
                     else:
                         try:
-                            store.update_password(int(reset_pending["user_id"]), new_password)
+                            store.update_password(
+                                int(reset_pending["user_id"]), new_password,
+                                expected_session_version=int(reset_pending.get("session_version") or -1),
+                            )
                         except ValueError as exc:
                             st.error(str(exc))
                         else:
@@ -784,6 +944,103 @@ def render_auth_gate(store: AuthStore, base: pd.DataFrame) -> AuthUser:
     st.stop()
 
 
-def logout() -> None:
+def _render_required_password_change(store: AuthStore, user: AuthUser) -> None:
+    st.title("Defina sua própria senha")
+    st.info("A senha inicial foi definida pela administração. Troque-a para acessar o painel.")
+    with st.form("required_password_change"):
+        password = st.text_input("Nova senha", type="password", autocomplete="new-password", help="Use ao menos 8 caracteres e escolha uma senha diferente da inicial.")
+        confirmation = st.text_input("Confirmar nova senha", type="password", autocomplete="new-password")
+        submitted = st.form_submit_button("Salvar minha senha", type="primary")
+    if submitted:
+        if password != confirmation:
+            st.error("A confirmação não corresponde à nova senha.")
+        else:
+            try:
+                store.update_password(user.id, password, expected_session_version=user.session_version)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                refreshed = store.get_active_user(user.id)
+                if refreshed:
+                    st.session_state["auth_user"] = refreshed.__dict__
+                st.rerun()
+    if st.button("Sair", key="required_password_logout"):
+        logout(store)
+
+
+def _render_login(store: AuthStore) -> None:
+    pending = st.session_state.get("login_challenge")
+    if isinstance(pending, dict):
+        st.info("Enviamos um código de 6 dígitos para o e-mail cadastrado. Ele expira em 10 minutos.")
+        with st.form("login_second_factor"):
+            code = st.text_input("Código de acesso", max_chars=6, autocomplete="one-time-code", placeholder="000000")
+            submitted = st.form_submit_button("Confirmar acesso", use_container_width=True, type="primary")
+        if submitted:
+            try:
+                with st.spinner("Validando código de acesso…"):
+                    user = store.verify_login_challenge(str(pending["token"]), code)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state.pop("login_challenge", None)
+                st.session_state["auth_user"] = user.__dict__
+                st.session_state["auth_mfa_verified"] = True
+                st.rerun()
+        if st.button("Voltar ou solicitar novo código", use_container_width=True):
+            store.cancel_login_challenge(str(pending["token"]))
+            st.session_state.pop("login_challenge", None)
+            st.rerun()
+        return
+
+    with st.form("login_form", clear_on_submit=False):
+        cpf = st.text_input("CPF", placeholder="000.000.000-00", autocomplete="username")
+        password = st.text_input("Senha", type="password", autocomplete="current-password")
+        st.markdown('<a class="forgot-password-link" href="?recover=1">Esqueceu sua senha?</a>', unsafe_allow_html=True)
+        submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+    if not submitted:
+        return
+    with st.spinner("Validando CPF e senha…"):
+        user = store.authenticate(cpf, password)
+    if user is None:
+        st.error("CPF ou senha inválidos, ou limite de tentativas atingido. Após tentativas repetidas, aguarde 15 minutos.")
+        return
+    if not mfa_required():
+        store.record_auth_event(user.id, "login")
+        st.session_state["auth_user"] = user.__dict__
+        st.session_state["auth_mfa_verified"] = False
+        st.rerun()
+        return
+    if not smtp_configured():
+        st.error("O segundo fator é obrigatório, mas o envio de e-mail ainda não foi configurado. Procure a administração.")
+        return
+    token = None
+    try:
+        with st.spinner("Enviando o código de acesso para seu e-mail. Aguarde…"):
+            token, code = store.start_login_challenge(user)
+            send_verification_code(store.login_email(user.id) or "", code)
+    except (OSError, smtplib.SMTPException, RuntimeError, ValueError) as exc:
+        if token:
+            store.cancel_login_challenge(token)
+        store.record_auth_event(user.id, "mfa_delivery_failed")
+        st.error(f"Não foi possível concluir o segundo fator. {exc}")
+    else:
+        st.session_state["login_challenge"] = {"token": token}
+        st.rerun()
+
+
+def logout(store: AuthStore | None = None) -> None:
+    current = st.session_state.get("auth_user")
+    if store is None and st.session_state.get("_auth_store_path"):
+        store = AuthStore(Path(st.session_state["_auth_store_path"]))
+    if store is not None and isinstance(current, dict) and current.get("id"):
+        store.record_auth_event(int(current["id"]), "logout")
+    pending = st.session_state.get("login_challenge")
+    if store is not None and isinstance(pending, dict) and pending.get("token"):
+        store.cancel_login_challenge(str(pending["token"]))
     st.session_state.pop("auth_user", None)
+    st.session_state.pop("auth_mfa_verified", None)
+    st.session_state.pop("login_challenge", None)
+    st.session_state.pop("internal_management_account", None)
+    st.session_state.pop("registration_challenge", None)
+    st.session_state.pop("password_reset_challenge", None)
     st.rerun()

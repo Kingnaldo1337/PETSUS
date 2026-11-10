@@ -4,6 +4,7 @@ from getpass import getpass
 from pathlib import Path
 
 from auth import AuthStore, ROLE_MANAGER
+from petsus.auth.registration import is_valid_email, normalize_email
 
 
 def main() -> None:
@@ -12,15 +13,19 @@ def main() -> None:
     print("Criação de conta de gestor")
     cpf = input("CPF do gestor: ").strip()
     nome = input("Nome do gestor: ").strip() or "Gestor"
-    senha = getpass("Senha (mínimo 8 caracteres): ")
+    email = normalize_email(input("E-mail do gestor (para segundo fator): "))
+    if not is_valid_email(email):
+        raise SystemExit("Informe um e-mail válido.")
+    senha = getpass("Senha inicial (mínimo 8 caracteres): ")
     confirmacao = getpass("Confirme a senha: ")
     if senha != confirmacao:
         raise SystemExit("As senhas não coincidem.")
     try:
-        user = store.create_user(cpf, senha, nome, ROLE_MANAGER)
+        user = store.create_user(cpf, senha, nome, ROLE_MANAGER, email=email, must_change_password=True)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     print(f"Gestor criado com sucesso: {user.name} ({user.cpf_display})")
+    print("A senha inicial deverá ser trocada no primeiro acesso. Configure SMTP para ativar o segundo fator por e-mail.")
 
 
 if __name__ == "__main__":

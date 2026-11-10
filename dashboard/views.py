@@ -1,835 +1,764 @@
 from __future__ import annotations
 
 from html import escape
+import re
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from .charts import barh, chart_layout, donut, empty_fig, monthly_line, top_group
+from .charts import barh, chart_layout, distribution_bar, empty_fig, monthly_line, semantic_color, top_group
+from .theme import apply_chart_appearance
 from .ui import br_float, br_int, br_money, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
+from petsus.data.prevention import PREVENTION_ACTIONS
 
-LIMITE_210_SM_2026 = 210 * 1621.0
-
+MIN_PATIENTS = 5
 JUDICIAL_TRACK = (
     "Documentação preparada", "Processo protocolado", "Processo distribuído",
-    "Análise técnica", "Aguardando decisão", "Decisão sobre urgência",
+    "Análise técnica", "Aguardando decisão", "Decisão judicial",
     "Órgão responsável intimado", "Cumprimento em acompanhamento", "Sentença",
-    "Recursos / encerramento",
+    "Recursos / trânsito em julgado / encerramento",
 )
+
+LABELS = {
+    "processo_id": "Processo", "paciente_id": "Código do paciente", "paciente": "Paciente", "cpf": "CPF mascarado",
+    "municipio": "Município", "uf": "UF", "regiao": "Região", "natureza": "Natureza da ação",
+    "tipo_demanda": "Tipo de demanda", "fase_processual": "Fase processual", "desfecho": "Desfecho",
+    "especialidade": "Especialidade", "item_demandado": "Item demandado", "condicao_clinica": "Condição clínica",
+    "medicamento_dcb": "Princípio ativo (DCB)", "cid": "Código do diagnóstico (CID)",
+    "rename_incorporado": "Incorporado à lista RENAME", "componente_sus": "Componente da assistência farmacêutica",
+    "grupo_sus": "Grupo de financiamento SUS", "apresentacao_padronizada": "Apresentação do medicamento",
+    "pcdt_aplicavel": "Protocolo clínico aplicável", "pcdt_referencia": "Protocolo clínico de referência",
+    "dose_prescrita": "Dose prescrita", "frequencia_administracao": "Frequência de administração",
+    "duracao_meses": "Duração (meses)", "pmvg_referencia": "Preço estimado por administração (R$)",
+    "valor_anual_tratamento": "Tratamento estimado para 12 meses (R$)", "valor_causa_estimado": "Valor estimado da causa (R$)",
+    "competencia_petsus": "Competência judicial", "reu_sugerido": "Réu sugerido",
+    "ente_responsavel": "Ente responsável", "ente_dispensacao_simulado": "Dispensação administrativa",
+    "processos": "Processos", "pacientes": "Pacientes distintos", "custo_total": "Custo estimado dos processos (R$)",
+    "custo_medio": "Custo médio por processo (R$)", "tempo_medio": "Tempo médio (dias)",
+    "custo_mediano": "Mediana do custo (R$)", "custo_q1": "1º quartil do custo (R$)", "custo_q3": "3º quartil do custo (R$)",
+    "valor_anual": "Tratamentos estimados para 12 meses (R$)", "valor_causa": "Valor estimado das causas (R$)",
+    "causa_judicializacao": "Causa da judicialização", "motivo_potencialmente_evitavel": "Ação administrativa sugerida",
+    "faixa_etaria": "Faixa etária", "sexo": "Sexo", "faixa_custo": "Faixa de custo acumulado por paciente",
+    "custo_estimado": "Custo estimado (R$)", "freq": "Frequência", "dcb": "Princípio ativo",
+    "data_ajuizamento": "Data de ajuizamento", "salario_minimo_ajuizamento": "Salário mínimo no ajuizamento (R$)",
+    "limite_210_sm_ajuizamento": "Limite de 210 salários no ajuizamento (R$)", "ano": "Ano do ajuizamento",
+}
+
+
+def mask_cpf(value: object) -> str:
+    digits = re.sub(r"\D", "", str(value))
+    return f"{digits[:3]}.***.***-{digits[-2:]}" if len(digits) == 11 else "Não informado"
+
+
+def mask_personal_data(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in result.columns:
+        if "cpf" in str(column).lower():
+            result[column] = result[column].map(mask_cpf)
+    return result
+
+
+def protected_aggregate(df: pd.DataFrame, groups: list[str], **extra) -> pd.DataFrame:
+    """Publica somente células com >=5 pacientes; evita reconstrução de célula única.
+
+    A contagem é de pessoas distintas, nunca de linhas/processos. Quando há uma
+    única célula pequena, a menor célula publicável também é suprimida.
+    """
+    aggregations = dict(processos=("processo_id", "count"), pacientes=("paciente_id", "nunique"))
+    for name, column, op in [
+        ("custo_total", "custo_estimado", "sum"), ("custo_medio", "custo_estimado", "mean"),
+        ("tempo_medio", "tempo_tramitacao_dias", "mean"),
+    ]:
+        if column in df:
+            aggregations[name] = (column, op)
+    aggregations.update(extra)
+    result = df.groupby(groups, dropna=False, observed=True).agg(**aggregations).reset_index()
+    safe = result["pacientes"] >= MIN_PATIENTS
+    if (~safe).sum() == 1 and safe.any():
+        safe.loc[result.loc[safe, "pacientes"].idxmin()] = False
+    suppressed = bool((~safe).any())
+    result = result.loc[safe].copy()
+    result.attrs["small_cells_suppressed"] = suppressed
+    return result
+
+
+def judgment_summary(df: pd.DataFrame) -> dict:
+    counts = df["desfecho"].value_counts()
+    full = int(counts.get("Procedente", 0))
+    partial = int(counts.get("Parcialmente procedente", 0))
+    rejected = int(counts.get("Improcedente", 0))
+    judged = full + partial + rejected
+    return {
+        "julgados": judged, "procedentes": full, "parciais": partial,
+        "procedencia": 100 * full / judged if judged else None,
+        "procedencia_parcial": 100 * partial / judged if judged else None,
+        "pendentes": int(counts.get("Em andamento", 0)),
+        "acordos": int(counts.get("Acordo", 0)),
+        "outros": len(df) - judged - int(counts.get("Em andamento", 0)) - int(counts.get("Acordo", 0)),
+    }
+
+
+def _publishable_subset(df: pd.DataFrame, mask: pd.Series) -> bool:
+    return all(count == 0 or count >= MIN_PATIENTS for count in (
+        df.loc[mask, "paciente_id"].nunique(), df.loc[~mask, "paciente_id"].nunique(),
+    ))
+
+
+def _rate(df: pd.DataFrame, mask: pd.Series) -> str:
+    if df.empty:
+        return "Não se aplica"
+    if not _publishable_subset(df, mask):
+        return "Suprimido"
+    return f"{br_float(pct(mask.sum(), len(df)))}%"
+
+
+def _count(df: pd.DataFrame, mask: pd.Series) -> str:
+    return br_int(mask.sum()) if _publishable_subset(df, mask) else "Suprimido"
+
+
+def _cards(cards) -> None:
+    for column, card in zip(st.columns(len(cards)), cards):
+        with column:
+            metric_card(*card)
+
+
+def _plot(fig, *, key: str) -> None:
+    apply_chart_appearance(fig, contrast=st.session_state.get("a11y_contrast", False), large_text=st.session_state.get("a11y_large_text", False))
+    st.plotly_chart(fig, key=key, use_container_width=True, theme=None, config={"displayModeBar": False, "responsive": True, "scrollZoom": False, "locale": "pt-BR"})
+
+
+def _table(df: pd.DataFrame, height: int = 350) -> None:
+    view = mask_personal_data(df).rename(columns=LABELS)
+    if view.empty:
+        st.info("Nenhuma célula publicável neste recorte. Grupos com menos de 5 pacientes distintos são protegidos.")
+        return
+    view = view.rename(columns={column: str(column).replace("_", " ").capitalize() for column in view if "_" in str(column)})
+    config = {column: st.column_config.Column(column, width="large") for column in view}
+    for column in view:
+        if column.endswith("(R$)") or "PMVG" in column:
+            config[column] = st.column_config.NumberColumn(column, format="R$ %.2f", width="large")
+        elif pd.api.types.is_numeric_dtype(view[column]):
+            config[column] = st.column_config.NumberColumn(column, format="%.1f" if "dias" in column else "%d", width="medium")
+    st.dataframe(view, hide_index=True, use_container_width=True, height=height, row_height=40, column_config=config)
+
+
+def _distribution(df, column, title, height=340, patients=False):
+    with st.container(border=True, key=f"manager_panel_distribution_{column}_{title}"):
+        section_title(title)
+        agg = protected_aggregate(df, [column])
+        value = "pacientes" if patients else "processos"
+        denominator = df["paciente_id"].nunique() if patients else len(df)
+        _plot(distribution_bar(agg, column, value, denominator=denominator, height=height), key=f"distribution:{column}:{title}")
+        st.caption(f"Percentuais sobre {br_int(denominator)} {'pacientes distintos' if patients else 'processos'} no recorte; células protegidas podem não ser exibidas.")
+
+
+def _ranking(df, column, title, value="processo_id", op="count", height=350, separate=False):
+    with st.container(border=True, key=f"manager_panel_ranking_{column}_{op}_{title}"):
+        section_title(title)
+        grouped = top_group(df, column, value, 10, op)
+        grouped["texto"] = grouped["valor"].map(br_money if op in {"sum", "mean"} else br_int)
+        _plot(barh(grouped, column, "valor", "texto", height=height, color="#239B56" if op == "sum" else "#125CC9", separate_dominant=separate), key=f"ranking:{column}:{value}:{op}:{title}")
 
 
 def tracking_bar(title: str, stages, current: int, color: str) -> None:
-    if title.startswith("Trilha A"):
-        help_text = (
-            "A Trilha A mostra o andamento do processo dentro do Judiciário, desde a preparação "
-            "dos documentos até sentença, recursos e encerramento."
-        )
-    else:
-        help_text = (
-            "A Trilha B mostra o cumprimento prático da decisão pela rede de saúde, como estoque, "
-            "aquisição e entrega de medicamento ou regulação e realização de cirurgia."
-        )
+    help_text = (
+        "Andamento do processo no Judiciário, da preparação dos documentos ao encerramento."
+        if title.startswith("Trilha A") else
+        "Cumprimento prático pela saúde: disponibilidade, aquisição, comunicação e entrega ou realização."
+    )
     items = []
     for index, name in enumerate(stages, start=1):
         state = "done" if index < current else "current" if index == current else "pending"
         marker = "✓" if index < current else str(index)
-        items.append(
-            f'<div class="flow-step {state}" style="--track-color:{color}">'
-            f'<div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>'
-        )
+        items.append(f'<div class="flow-step {state}" style="--track-color:{color}"><div class="flow-marker">{marker}</div><div class="flow-label">{escape(str(name))}</div></div>')
     st.markdown(
-        f'<div class="flow-title">{escape(title)}'
-        f'<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" '
-        f'data-help="{escape(help_text, quote=True)}">?</span></div>'
-        f'<div class="flow-track">' + "".join(items) + "</div>",
+        f'<div class="flow-title">{escape(title)}<span class="card-help" tabindex="0" role="img" aria-label="Ajuda: {escape(help_text, quote=True)}" data-help="{escape(help_text, quote=True)}">?</span></div><div class="flow-track">' + "".join(items) + "</div>",
         unsafe_allow_html=True,
     )
 
-def render_pages(
-    pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_store=None
-):
+
+def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_sel, auth_store=None):
     auth_state = st.session_state.get("auth_user", {})
-    user_role = auth_state.get("role", "gestor") if isinstance(auth_state, dict) else "gestor"
-    
-    # -----------------------------------------------------------------------------
-    # Páginas
-    # -----------------------------------------------------------------------------
+    role = auth_state.get("role") if isinstance(auth_state, dict) else None
+    if role != "gestor":
+        st.error("Esta visão analítica é restrita a gestores.")
+        return
     if pagina == "Gestão interna":
-        manager_session = isinstance(auth_state, dict) and auth_state.get("role") == "gestor"
-        if not manager_session or auth_store is None:
+        if not isinstance(auth_state, dict) or auth_state.get("role") != "gestor" or auth_store is None:
             st.error("Esta página é restrita a gestores.")
             return
         from petsus.dashboard.internal_management import render_internal_management
-
         render_internal_management(auth_store)
-
-    elif pagina == "Visão Geral":
-        cards = [
-            ("Total de Processos", br_int(k["total"]), f"{br_float(participacao)}% da base total", "📄", "icon-blue"),
-            ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo total", "$", "icon-green"),
-            ("Tempo Médio", f"{br_int(k['tempo'])} dias", "tempo médio de tramitação", "⏱", "icon-orange"),
-            ("Taxa de Procedência", f"{br_float(k['procedencia'])}%", "procedente + parcialmente", "🛡", "icon-purple"),
-        ]
-        if user_role != "usuario":
-            cards.insert(
-                1,
-                ("Pacientes Ativos", br_int(k["pacientes"]), f"{br_float(pct(k['pacientes'], base['paciente_id'].nunique()))}% dos pacientes", "👥", "icon-green"),
-            )
-        cols = st.columns(len(cards))
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-    
-        a, b, c = st.columns([1.75, 1.2, 1.15])
-        with a:
-            with st.container(border=True):
-                section_title("Evolução mensal dos processos")
-                st.plotly_chart(
-                    monthly_line(dff.assign(qtd=1), "qtd", "Processos", height=340),
-                    use_container_width=True,
-                    config={"displayModeBar": True, "scrollZoom": True, "responsive": True, "displaylogo": False},
-                )
-        with b:
-            with st.container(border=True):
-                section_title("Natureza da ação")
-                nat = dff.groupby("natureza", as_index=False).size().rename(columns={"size": "processos"}).sort_values("processos", ascending=False)
-                st.plotly_chart(donut(nat, "natureza", "processos", f"{br_int(k['total'])}<br>Total", height=340), use_container_width=True, config={"displayModeBar": False})
-        with c:
-            with st.container(border=True):
-                section_title("Desfecho processual")
-                desf = dff.groupby("desfecho", as_index=False).size().rename(columns={"size": "processos"}).sort_values("processos", ascending=False)
-                st.plotly_chart(donut(desf, "desfecho", "processos", f"{br_float(k['procedencia'])}%<br>Proced.", height=340), use_container_width=True, config={"displayModeBar": False})
-    
-        d, e, f = st.columns([1.35, 1.35, 1.30])
-        with d:
-            with st.container(border=True):
-                section_title("Top 10 itens mais demandados")
-                top_itens = top_group(dff, "item_demandado", "processo_id", 10, "count")
-                top_itens["texto"] = top_itens["valor"].map(br_int)
-                st.plotly_chart(barh(top_itens, "item_demandado", "valor", "texto", height=335), use_container_width=True, config={"displayModeBar": False})
-        with e:
-            with st.container(border=True):
-                section_title("Custo por natureza")
-                custo_nat = top_group(dff, "natureza", "custo_estimado", 8, "sum")
-                custo_nat["texto"] = custo_nat["valor"].map(br_money)
-                st.plotly_chart(barh(custo_nat, "natureza", "valor", "texto", height=335, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-        with f:
-            with st.container(border=True):
-                section_title("Alertas executivos")
-                p_lim = br_float(k["liminar"])
-                item_maior = top_group(dff, "item_demandado", "custo_estimado", 1, "sum")
-                ticket_top = dff.groupby("paciente", as_index=False)["custo_estimado"].sum().sort_values("custo_estimado", ascending=False).head(1)
-                i1, i2 = st.columns(2)
-                with i1:
-                    insight_card("Liminares", f"{p_lim}%", "Percentual de processos com decisão liminar no recorte filtrado.")
-                with i2:
-                    insight_card("Urgentes", br_int(k["urgentes"]), "Total de processos classificados como urgentes.")
-                if user_role == "usuario":
-                    insight_card("Maior item por custo", item_maior["item_demandado"].iloc[0] if not item_maior.empty else "-", br_money(item_maior["valor"].iloc[0]) if not item_maior.empty else "Sem custo")
-                else:
-                    cidade_maior = top_group(dff, "municipio", "processo_id", 1, "count")
-                    i3, i4 = st.columns(2)
-                    with i3:
-                        insight_card("Maior item por custo", item_maior["item_demandado"].iloc[0] if not item_maior.empty else "-", br_money(item_maior["valor"].iloc[0]) if not item_maior.empty else "Sem custo")
-                    with i4:
-                        insight_card("Município destaque", cidade_maior["municipio"].iloc[0] if not cidade_maior.empty else "-", f"{br_int(cidade_maior['valor'].iloc[0])} processos" if not cidade_maior.empty else "Sem registros")
-    
-    elif pagina == "Andamento":
-        st.markdown(
-            """
-            <style>
-            .flow-title { display:flex; align-items:center; gap:.5rem; font-size:1.05rem; font-weight:900; color:#0B2459; margin:.7rem 0 .5rem; }
-            .flow-title .card-help { margin-left:0; }
-            .flow-track { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.6rem; margin-bottom:1rem; }
-            .flow-step { min-width:0; padding:.65rem .4rem; border:1px solid #DDE6F2; border-radius:13px; background:#F8FAFD; text-align:center; }
-            .flow-marker { width:28px; height:28px; border-radius:50%; margin:0 auto .4rem; display:flex; align-items:center; justify-content:center; background:#E5EAF1; color:#667085; font-weight:900; }
-            .flow-label { font-size:.74rem; line-height:1.18; color:#667085; font-weight:750; overflow-wrap:anywhere; }
-            .flow-step.done { background:#ECFDF3; border-color:#A7E3BC; }
-            .flow-step.done .flow-marker { background:#239B56; color:white; }
-            .flow-step.current { background:#EEF5FF; border:2px solid var(--track-color); box-shadow:0 4px 12px rgba(18,92,201,.12); }
-            .flow-step.current .flow-marker { background:var(--track-color); color:white; }
-            .flow-step.current .flow-label { color:#0B2459; }
-            [data-testid="stMetricValue"],
-            [data-testid="stMetricValue"] > div,
-            [data-testid="stMetricValue"] * {
-                font-size: clamp(1.05rem, 1.65vw, 1.6rem) !important;
-                line-height: 1.15 !important;
-                white-space: normal !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
-                overflow-wrap: anywhere !important;
-            }
-            @media(max-width:900px){.flow-track{grid-template-columns:repeat(2,minmax(0,1fr));}}
-            @media(max-width:520px){.flow-track{grid-template-columns:1fr;}}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.info(
-            "Esta demonstração separa o andamento no Judiciário do cumprimento material na saúde. "
-            "Uma decisão favorável não significa, por si só, que o medicamento foi entregue ou que a cirurgia foi realizada."
-        )
-
-        overdue_count = int((dff["indicador_atraso"] == "Sim").sum())
-        health_active = int((dff["etapa_saude_ordem"] > 0).sum())
-        continuous = int((dff["status_andamento"] == "Tratamento em cumprimento contínuo").sum())
-        cols = st.columns(4)
-        cards = [
-            ("Processos acompanhados", br_int(len(dff)), "processos no recorte", "📋", "icon-blue"),
-            ("Cumprimento iniciado", br_int(health_active), "ordens em execução na saúde", "⚕", "icon-green"),
-            ("Prazo vencido", br_int(overdue_count), "cumprimentos pendentes", "!", "icon-orange"),
-            ("Uso contínuo", br_int(continuous), "tratamentos com acompanhamento periódico", "↻", "icon-purple"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-
-        if user_role != "usuario":
-            a, b = st.columns(2)
-            with a:
-                with st.container(border=True):
-                    section_title("Etapas judiciais no recorte")
-                    judicial_summary = dff.groupby("etapa_judicial", as_index=False).size().rename(columns={"size": "processos"})
-                    judicial_summary["texto"] = judicial_summary["processos"].map(br_int)
-                    st.plotly_chart(barh(judicial_summary, "etapa_judicial", "processos", "texto", height=320), use_container_width=True, config={"displayModeBar": False})
-            with b:
-                with st.container(border=True):
-                    section_title("Cumprimento na rede de saúde")
-                    health_summary = dff.groupby("etapa_saude", as_index=False).size().rename(columns={"size": "processos"})
-                    health_summary["texto"] = health_summary["processos"].map(br_int)
-                    st.plotly_chart(barh(health_summary, "etapa_saude", "processos", "texto", height=320, color="#239B56"), use_container_width=True, config={"displayModeBar": False})
-
-        section_title("Consultar um processo")
-        process_rows = dff.sort_values("ultima_movimentacao_data", ascending=False).drop_duplicates("processo_id")
-        labels = {}
-        for row in process_rows.itertuples(index=False):
-            patient = f" · {row.paciente}" if user_role != "usuario" else ""
-            labels[f"{row.processo_id}{patient} · {row.item_demandado}"] = row.processo_id
-        selected_label = st.selectbox("Processo", list(labels), help="Selecione o processo que deseja acompanhar.")
-        process = process_rows[process_rows["processo_id"] == labels[selected_label]].iloc[0]
-
-        st.markdown(f"### {escape(str(process['item_demandado']))}")
-        st.caption(f"Processo {process['processo_id']} · Fluxo de {process['tipo_fluxo_saude']}")
-        if process["status_andamento"] == "Tratamento em cumprimento contínuo":
-            st.success("O medicamento foi entregue, mas o acompanhamento continua por se tratar de uso contínuo.")
-
-        j1, j2, j3 = st.columns(3)
-        j1.metric("Situação judicial", process["etapa_judicial"])
-        j2.metric("Cumprimento na saúde", process["etapa_saude"])
-        j3.metric("Status geral", process["status_andamento"])
-
-        st.progress(int(process["percentual_judicial"]), text=f"Andamento judicial: {int(process['percentual_judicial'])}%")
-        tracking_bar("Trilha A - andamento judicial", JUDICIAL_TRACK, int(process["etapa_judicial_ordem"]), "#125CC9")
-
-        health_tracks = {
-            "Medicamento": ("Ordem recebida", "Análise do cumprimento", "Estoque verificado", "Aquisição", "Produto recebido", "Disponível", "Paciente comunicado", "Medicamento entregue"),
-            "Cirurgia": ("Ordem recebida", "Regulação", "Hospital definido", "Pré-operatório", "Autorizada", "Agendada", "Paciente convocado", "Realizada", "Pós-operatório"),
-            "Tratamento ou serviço": ("Ordem recebida", "Análise", "Disponibilidade", "Providência administrativa", "Disponibilizado", "Paciente comunicado", "Realizado"),
-        }
-        health_track = health_tracks[process["tipo_fluxo_saude"]]
-        if int(process["etapa_saude_ordem"]) == 0:
-            st.warning("A trilha de cumprimento ainda não começou porque não há ordem favorável registrada.")
-        st.progress(int(process["percentual_saude"]), text=f"Cumprimento na saúde: {int(process['percentual_saude'])}%")
-        tracking_bar(f"Trilha B - cumprimento de {str(process['tipo_fluxo_saude']).lower()}", health_track, int(process["etapa_saude_ordem"]), "#239B56")
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            with st.container(border=True):
-                section_title("Decisão e comunicação")
-                st.write(process["decisao_urgencia"])
-                if pd.notna(process["data_intimacao"]):
-                    st.caption(f"Intimação: {pd.to_datetime(process['data_intimacao']).strftime('%d/%m/%Y')}")
-        with c2:
-            with st.container(border=True):
-                section_title("Prazo para cumprimento")
-                if pd.notna(process["data_limite_cumprimento"]):
-                    st.markdown(f"**{pd.to_datetime(process['data_limite_cumprimento']).strftime('%d/%m/%Y')}**")
-                    st.caption(f"Prazo demonstrativo: {int(process['prazo_cumprimento_dias'])} dias")
-                else:
-                    st.write("Ainda não definido")
-        with c3:
-            with st.container(border=True):
-                section_title("Próxima ação")
-                st.write(process["proxima_etapa"])
-                st.caption(f"Responsável: {process['responsavel_etapa']}")
-
-        if user_role == "usuario":
-            st.info(process["mensagem_paciente"])
-
-        pdf_data = build_process_tracking_pdf(
-            process.to_dict(),
-            JUDICIAL_TRACK,
-            health_track,
-        )
-        st.download_button(
-            "Baixar consulta em PDF",
-            data=pdf_data,
-            file_name=f"andamento_{process['processo_id']}.pdf",
-            mime="application/pdf",
-            help="Baixa um relatório com o resumo e as etapas do processo selecionado.",
-            type="primary",
-        )
-
+        return
+    if dff.empty:
+        st.info("Nenhum processo encontrado para os filtros selecionados.")
+        return
+    if pagina == "Andamento":
+        _render_tracking(dff)
+        return
+    if dff["paciente_id"].nunique() < MIN_PATIENTS:
+        st.warning("Recorte protegido: são necessários pelo menos 5 pacientes distintos para exibir indicadores, gráficos, tabelas ou exportações. Amplie os filtros.")
+        return
+    st.caption("Privacidade: células com menos de 5 pacientes distintos são suprimidas; uma segunda célula pode ser protegida para impedir reconstrução por subtração. As exportações seguem a mesma regra.")
+    if pagina == "Visão Geral":
+        _render_overview(dff, base, k, participacao, part_custo)
     elif pagina == "Demandas":
-        cols = st.columns(5)
-        demanda_principal = top_group(dff, "tipo_demanda", "processo_id", 1, "count")
-        esp_principal = top_group(dff, "especialidade", "processo_id", 1, "count")
-        cards = [
-            ("Processos Urgentes", br_int(k["urgentes"]), f"{br_float(pct(k['urgentes'], k['total']))}% dos processos", "🔔", "icon-orange"),
-            ("Taxa de Liminares", f"{br_float(k['liminar'])}%", "processos com liminar", "⚖️", "icon-purple"),
-            ("Demanda Principal", demanda_principal["tipo_demanda"].iloc[0] if not demanda_principal.empty else "-", "maior volume", "📌", "icon-blue"),
-            ("Especialidade Líder", esp_principal["especialidade"].iloc[0] if not esp_principal.empty else "-", "maior volume", "🩺", "icon-green"),
-            ("Itens Distintos", br_int(dff["item_demandado"].nunique()), "medicamentos/serviços", "💊", "icon-blue"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-    
-        a, b = st.columns([1.35, 1.2])
-        with a:
-            with st.container(border=True):
-                section_title("Demandas por tipo e fase processual")
-                fase = pd.crosstab(dff["tipo_demanda"], dff["fase_processual"]).reset_index()
-                for col in ["Conhecimento", "Execução", "Cumprimento de Sentença"]:
-                    if col not in fase.columns:
-                        fase[col] = 0
-                fase = fase.sort_values(["Conhecimento", "Execução", "Cumprimento de Sentença"], ascending=False).head(10)
-                fig = go.Figure()
-                for col_name, color in [("Conhecimento", "#125CC9"), ("Execução", "#39A74A"), ("Cumprimento de Sentença", "#EAB308")]:
-                    fig.add_trace(go.Bar(y=fase["tipo_demanda"], x=fase[col_name], orientation="h", name=col_name, marker_color=color, text=fase[col_name], textposition="inside"))
-                fig.update_layout(**chart_layout(height=370, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
-                fig.update_xaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-                fig.update_yaxes(showgrid=False, autorange="reversed")
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Evolução mensal de liminares e urgências")
-                trend = dff.assign(liminar_qtd=(dff["liminar"] == "Sim").astype(int), urgente_qtd=(dff["urgente"] == "Sim").astype(int))
-                trend = trend.groupby("ano_mes", as_index=False).agg(liminares=("liminar_qtd", "sum"), urgentes=("urgente_qtd", "sum"))
-                trend = trend.sort_values("ano_mes")
-                trend["mes"] = pd.to_datetime(trend["ano_mes"] + "-01").dt.strftime("%m/%Y")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=trend["mes"], y=trend["liminares"], mode="lines+markers", name="Liminares", line=dict(color="#7C3AED", width=3)))
-                fig.add_trace(go.Scatter(x=trend["mes"], y=trend["urgentes"], mode="lines+markers", name="Urgentes", line=dict(color="#F59E0B", width=3)))
-                fig.update_layout(**chart_layout(height=370, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)))
-                fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-                fig.update_xaxes(showgrid=False)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    
-        c, d, e = st.columns([1.15, 1.15, 1.25])
-        with c:
-            with st.container(border=True):
-                section_title("Tipos de demanda")
-                tipo = top_group(dff, "tipo_demanda", "processo_id", 10, "count")
-                tipo["texto"] = tipo["valor"].map(br_int)
-                st.plotly_chart(barh(tipo, "tipo_demanda", "valor", "texto", height=330), use_container_width=True, config={"displayModeBar": False})
-        with d:
-            with st.container(border=True):
-                section_title("Especialidades mais acionadas")
-                esp = top_group(dff, "especialidade", "processo_id", 10, "count")
-                esp["texto"] = esp["valor"].map(br_int)
-                st.plotly_chart(barh(esp, "especialidade", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-        with e:
-            with st.container(border=True):
-                section_title("Tabela de demandas")
-                table = dff.groupby(["tipo_demanda", "fase_processual"], as_index=False).agg(
-                    processos=("processo_id", "count"),
-                    pacientes=("paciente_id", "nunique"),
-                    custo_total=("custo_estimado", "sum"),
-                    tempo_medio=("tempo_tramitacao_dias", "mean"),
-                ).sort_values("processos", ascending=False).head(12)
-                table["custo_total"] = table["custo_total"].map(lambda x: br_money(x, compact=False))
-                table["tempo_medio"] = table["tempo_medio"].map(lambda x: f"{br_int(x)} dias")
-                st.dataframe(table.rename(columns={"tipo_demanda": "Tipo", "fase_processual": "Fase", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "tempo_medio": "Tempo Médio"}), hide_index=True, use_container_width=True, height=330)
-    
+        _render_demands(dff, k)
     elif pagina == "Medicamentos":
-        med = dff[dff["medicamento_petsus"] == "Sim"].copy()
-        st.info(
-            "Campos de análise de medicamentos do PetSUS. "
-            "Nesta base acadêmica, os valores de RENAME, PMVG, PCDT, posologia e competência são sintéticos e servem somente para demonstração do dashboard."
-        )
-        if med.empty:
-            st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
-        else:
-            incorporados = int((med["rename_incorporado"] == "Sim").sum())
-            cols = st.columns(5)
-            cards = [
-                ("Demandas de medicamentos", br_int(len(med)), "registros compatíveis com a análise PetSUS", "💊", "icon-blue"),
-                ("DCB distintos", br_int(med["medicamento_dcb"].nunique()), "princípios ativos no recorte", "🧪", "icon-purple"),
-                ("Incorporados à RENAME", f"{br_float(pct(incorporados, len(med)))}%", f"{br_int(incorporados)} registros", "✅", "icon-green"),
-                ("PMVG médio", br_money(med["pmvg_referencia"].mean()), "preço de referência sintético por administração", "$", "icon-orange"),
-                ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "soma anual dos tratamentos", "📈", "icon-green"),
-            ]
-            for col, card in zip(cols, cards):
-                with col:
-                    metric_card(*card)
-    
-            a, b, c = st.columns([1.0, 1.35, 1.0])
-            with a:
-                with st.container(border=True):
-                    section_title("Incorporação à RENAME")
-                    ren = med.groupby("rename_incorporado", as_index=False).size().rename(columns={"size": "processos"})
-                    st.plotly_chart(donut(ren, "rename_incorporado", "processos", f"{br_int(len(med))}<br>Demandas", height=330), use_container_width=True, config={"displayModeBar": False})
-            with b:
-                with st.container(border=True):
-                    section_title("Componente de financiamento SUS")
-                    comp = top_group(med, "componente_sus", "processo_id", 8, "count")
-                    comp["texto"] = comp["valor"].map(br_int)
-                    st.plotly_chart(barh(comp, "componente_sus", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-            with c:
-                with st.container(border=True):
-                    section_title("PCDT aplicável")
-                    pcdt = med.groupby("pcdt_aplicavel", as_index=False).size().rename(columns={"size": "processos"})
-                    st.plotly_chart(donut(pcdt, "pcdt_aplicavel", "processos", f"{br_float(pct((med['pcdt_aplicavel']=='Sim').sum(), len(med)))}%<br>com PCDT", height=330), use_container_width=True, config={"displayModeBar": False})
-    
-            d, e, f = st.columns([1.2, 1.2, 1.35])
-            with d:
-                with st.container(border=True):
-                    section_title("DCB mais demandadas")
-                    top_dcb = top_group(med, "medicamento_dcb", "processo_id", 10, "count")
-                    top_dcb["texto"] = top_dcb["valor"].map(br_int)
-                    st.plotly_chart(barh(top_dcb, "medicamento_dcb", "valor", "texto", height=350), use_container_width=True, config={"displayModeBar": False})
-            with e:
-                with st.container(border=True):
-                    section_title("Maior impacto anual por DCB")
-                    top_val = top_group(med, "medicamento_dcb", "valor_anual_tratamento", 10, "sum")
-                    top_val["texto"] = top_val["valor"].map(br_money)
-                    st.plotly_chart(barh(top_val, "medicamento_dcb", "valor", "texto", height=350, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
-            with f:
-                with st.container(border=True):
-                    section_title("Resumo farmacêutico")
-                    tab = med.groupby("medicamento_dcb", as_index=False).agg(
-                        demandas=("processo_id", "count"),
-                        incorporados=("rename_incorporado", lambda s: int((s == "Sim").sum())),
-                        pmvg_medio=("pmvg_referencia", "mean"),
-                        valor_anual=("valor_anual_tratamento", "sum"),
-                    ).sort_values("demandas", ascending=False).head(12)
-                    tab["% RENAME"] = tab.apply(lambda r: f"{br_float(pct(r['incorporados'], r['demandas']))}%", axis=1)
-                    tab["pmvg_medio"] = tab["pmvg_medio"].map(lambda x: br_money(x, compact=False))
-                    tab["valor_anual"] = tab["valor_anual"].map(br_money)
-                    st.dataframe(tab[["medicamento_dcb", "demandas", "% RENAME", "pmvg_medio", "valor_anual"]].rename(columns={
-                        "medicamento_dcb": "DCB", "demandas": "Demandas", "pmvg_medio": "PMVG Médio", "valor_anual": "Valor Anual"
-                    }), hide_index=True, use_container_width=True, height=350)
-    
-            with st.container(border=True):
-                section_title("Detalhamento PetSUS")
-                detail_cols = [
-                    "processo_id", "cid", "medicamento_dcb", "apresentacao_padronizada", "rename_incorporado",
-                    "componente_sus", "grupo_sus", "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao",
-                    "duracao_meses", "pmvg_referencia", "valor_anual_tratamento",
-                ]
-                det = med[detail_cols].sort_values("valor_anual_tratamento", ascending=False).head(200)
-                st.dataframe(det, hide_index=True, use_container_width=True, height=360, column_config={
-                    "pmvg_referencia": st.column_config.NumberColumn("PMVG Referência", format="R$ %.2f"),
-                    "valor_anual_tratamento": st.column_config.NumberColumn("Valor anual", format="R$ %.2f"),
-                })
-    
+        _render_medications(dff)
     elif pagina == "Competência":
-        med = dff[dff["medicamento_petsus"] == "Sim"].copy()
-        st.info(
-            f"Simulação acadêmica com os campos do PetSUS. Para medicamentos não incorporados, o dashboard usa como referência "
-            f"210 salários mínimos de 2026 (R$ {br_float(LIMITE_210_SM_2026, 2)})."
-        )
-        if med.empty:
-            st.warning("Nenhuma demanda de medicamento foi encontrada com os filtros selecionados.")
-        else:
-            federal = int((med["competencia_petsus"] == "Justiça Federal").sum())
-            estadual = int((med["competencia_petsus"] == "Justiça Estadual").sum())
-            alto_custo = int((med["acima_210_salarios_minimos"] == "Sim").sum())
-            reu_top = top_group(med, "reu_sugerido", "processo_id", 1, "count")
-            cols = st.columns(5)
-            cards = [
-                ("Justiça Federal", f"{br_float(pct(federal, len(med)))}%", f"{br_int(federal)} processos", "🏛️", "icon-blue"),
-                ("Justiça Estadual", f"{br_float(pct(estadual, len(med)))}%", f"{br_int(estadual)} processos", "⚖️", "icon-green"),
-                ("≥ 210 salários mínimos", br_int(alto_custo), "tratamentos anuais acima do limite de referência", "💰", "icon-orange"),
-                ("Réu mais sugerido", reu_top["reu_sugerido"].iloc[0] if not reu_top.empty else "-", "maior frequência no recorte", "👤", "icon-purple"),
-                ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "soma dos valores estimados", "$", "icon-green"),
-            ]
-            for col, card in zip(cols, cards):
-                with col:
-                    metric_card(*card)
-    
-            a, b, c = st.columns([1.0, 1.0, 1.4])
-            with a:
-                with st.container(border=True):
-                    section_title("Competência judicial")
-                    comp = med.groupby("competencia_petsus", as_index=False).size().rename(columns={"size": "processos"})
-                    st.plotly_chart(donut(comp, "competencia_petsus", "processos", f"{br_int(len(med))}<br>Demandas", height=340), use_container_width=True, config={"displayModeBar": False})
-            with b:
-                with st.container(border=True):
-                    section_title("Réu sugerido")
-                    reu = top_group(med, "reu_sugerido", "processo_id", 5, "count")
-                    reu["texto"] = reu["valor"].map(br_int)
-                    st.plotly_chart(barh(reu, "reu_sugerido", "valor", "texto", height=340, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
-            with c:
-                with st.container(border=True):
-                    section_title("Competência x incorporação à RENAME")
-                    cross = pd.crosstab(med["rename_incorporado"], med["competencia_petsus"]).reset_index()
-                    fig = go.Figure()
-                    for nome, color in [("Justiça Federal", "#125CC9"), ("Justiça Estadual", "#39A74A")]:
-                        if nome not in cross.columns:
-                            cross[nome] = 0
-                        fig.add_trace(go.Bar(x=cross["rename_incorporado"], y=cross[nome], name=nome, marker_color=color, text=cross[nome], textposition="inside"))
-                    fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
-                    fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    
-            d, e = st.columns([1.05, 1.6])
-            with d:
-                with st.container(border=True):
-                    section_title("Valor anual por componente")
-                    val_comp = top_group(med, "componente_sus", "valor_anual_tratamento", 8, "sum")
-                    val_comp["texto"] = val_comp["valor"].map(br_money)
-                    st.plotly_chart(barh(val_comp, "componente_sus", "valor", "texto", height=360, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-            with e:
-                with st.container(border=True):
-                    section_title("Casos de maior valor anual")
-                    tab = med[[
-                        "processo_id", "cid", "medicamento_dcb", "rename_incorporado", "componente_sus", "grupo_sus",
-                        "valor_anual_tratamento", "acima_210_salarios_minimos", "competencia_petsus", "reu_sugerido"
-                    ]].sort_values("valor_anual_tratamento", ascending=False).head(15)
-                    st.dataframe(tab.rename(columns={
-                        "processo_id": "Processo", "cid": "CID", "medicamento_dcb": "DCB", "rename_incorporado": "RENAME",
-                        "componente_sus": "Componente", "grupo_sus": "Grupo", "valor_anual_tratamento": "Valor anual",
-                        "acima_210_salarios_minimos": "≥ 210 SM", "competencia_petsus": "Competência", "reu_sugerido": "Réu sugerido"
-                    }), hide_index=True, use_container_width=True, height=360, column_config={
-                        "Valor anual": st.column_config.NumberColumn("Valor anual", format="R$ %.2f")
-                    })
-    
+        _render_competency(dff)
     elif pagina == "Custos":
-        cols = st.columns(5)
-        med_cost = dff[dff["natureza"] == "Medicamentos"]["custo_estimado"].sum()
-        intern_cost = dff[dff["natureza"] == "Internação"]["custo_estimado"].sum()
-        cards = [
-            ("Custo Total", br_money(k["custo"]), f"{br_float(part_custo)}% do custo da base", "$", "icon-green"),
-            ("Ticket Médio", br_money(k["ticket"]), "custo total estimado ÷ número de processos", "🧾", "icon-blue"),
-            ("Custo Medicamentos", br_money(med_cost), f"{br_float(pct(med_cost, k['custo']))}% do recorte", "💊", "icon-purple"),
-            ("Custo Internações", br_money(intern_cost), f"{br_float(pct(intern_cost, k['custo']))}% do recorte", "🏥", "icon-orange"),
-            ("Maior Processo", br_money(dff["custo_estimado"].max()), "maior valor individual", "📈", "icon-green"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-    
-        a, b = st.columns([1.55, 1.25])
-        with a:
-            with st.container(border=True):
-                section_title("Evolução mensal do custo total")
-                st.plotly_chart(monthly_line(dff, "custo_estimado", "Custo total", money=True, height=350), use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Custo por esfera")
-                esfera = top_group(dff, "esfera", "custo_estimado", 5, "sum")
-                esfera["texto"] = esfera["valor"].map(br_money)
-                st.plotly_chart(barh(esfera, "esfera", "valor", "texto", height=350, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-    
-        c, d, e = st.columns([1.2, 1.2, 1.2])
-        with c:
-            with st.container(border=True):
-                section_title("Itens com maior impacto financeiro")
-                itens_custo = top_group(dff, "item_demandado", "custo_estimado", 10, "sum")
-                itens_custo["texto"] = itens_custo["valor"].map(br_money)
-                st.plotly_chart(barh(itens_custo, "item_demandado", "valor", "texto", height=350, color="#125CC9"), use_container_width=True, config={"displayModeBar": False})
-        with d:
-            with st.container(border=True):
-                section_title("Especialidades por custo")
-                esp_custo = top_group(dff, "especialidade", "custo_estimado", 10, "sum")
-                esp_custo["texto"] = esp_custo["valor"].map(br_money)
-                st.plotly_chart(barh(esp_custo, "especialidade", "valor", "texto", height=350, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
-        with e:
-            with st.container(border=True):
-                section_title("Custo médio por processo, por natureza")
-                sample = dff.copy()
-                if len(sample) > 3500:
-                    sample = sample.sample(3500, random_state=42)
-                fig = px.box(sample, x="natureza", y="custo_estimado", points=False)
-                fig.update_traces(marker_color="#125CC9")
-                fig.update_layout(**chart_layout(height=350))
-                fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False, tickprefix="R$ ")
-                fig.update_xaxes(showgrid=False)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    
+        _render_costs(dff, k, part_custo)
     elif pagina == "Geografia":
-        cols = st.columns(5)
-        reg_top = top_group(dff, "regiao", "processo_id", 1, "count")
-        uf_top = top_group(dff, "uf", "processo_id", 1, "count")
-        mun_top = top_group(dff, "municipio", "processo_id", 1, "count")
-        cards = [
-            ("Municípios", br_int(k["municipios"]), "municípios no recorte", "📍", "icon-blue"),
-            ("Região Líder", reg_top["regiao"].iloc[0] if not reg_top.empty else "-", "maior volume", "🗺️", "icon-green"),
-            ("UF Líder", uf_top["uf"].iloc[0] if not uf_top.empty else "-", "maior volume", "🏛️", "icon-purple"),
-            ("Município Líder", mun_top["municipio"].iloc[0] if not mun_top.empty else "-", "maior volume", "🏙️", "icon-orange"),
-            ("Custo per capita", br_money(k["custo"] / max(k["pacientes"], 1)), "por paciente filtrado", "$", "icon-green"),
-        ]
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-    
-        a, b = st.columns([1.45, 1.1])
-        with a:
-            with st.container(border=True):
-                section_title("Mapa dos municípios filtrados")
-                geo = dff.groupby(["municipio", "uf", "regiao", "latitude", "longitude"], as_index=False).agg(
-                    processos=("processo_id", "count"),
-                    pacientes=("paciente_id", "nunique"),
-                    custo_total=("custo_estimado", "sum"),
-                )
-                geo = geo.dropna(subset=["latitude", "longitude"])
-                if geo.empty:
-                    st.plotly_chart(empty_fig("Sem coordenadas para o recorte", height=390), use_container_width=True, config={"displayModeBar": False})
-                else:
-                    fig = px.scatter_geo(
-                        geo,
-                        lat="latitude",
-                        lon="longitude",
-                        size="processos",
-                        color="regiao",
-                        hover_name="municipio",
-                        hover_data={"uf": True, "processos": True, "pacientes": True, "custo_total": ":,.2f", "latitude": False, "longitude": False},
-                        height=390,
-                    )
-                    fig.update_geos(
-                        showcountries=True,
-                        countrycolor="#CBD5E1",
-                        showland=True,
-                        landcolor="#F4F7FB",
-                        showocean=True,
-                        oceancolor="#E8F2FB",
-                        fitbounds="locations",
-                    )
-                    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", y=1.02, x=0))
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-        with b:
-            with st.container(border=True):
-                section_title("Processos por região")
-                reg = top_group(dff, "regiao", "processo_id", 10, "count")
-                reg["texto"] = reg["valor"].map(br_int)
-                st.plotly_chart(barh(reg, "regiao", "valor", "texto", height=390, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-    
-        c, d, e = st.columns([1.12, 1.12, 1.2])
-        with c:
-            with st.container(border=True):
-                section_title("Top municípios por processos")
-                m = top_group(dff, "municipio", "processo_id", 12, "count")
-                m["texto"] = m["valor"].map(br_int)
-                st.plotly_chart(barh(m, "municipio", "valor", "texto", height=340), use_container_width=True, config={"displayModeBar": False})
-        with d:
-            with st.container(border=True):
-                section_title("Top municípios por custo")
-                mc = top_group(dff, "municipio", "custo_estimado", 12, "sum")
-                mc["texto"] = mc["valor"].map(br_money)
-                st.plotly_chart(barh(mc, "municipio", "valor", "texto", height=340, color="#7C3AED"), use_container_width=True, config={"displayModeBar": False})
-        with e:
-            with st.container(border=True):
-                section_title("Tabela geográfica")
-                tab = dff.groupby(["regiao", "uf", "municipio"], as_index=False).agg(
-                    processos=("processo_id", "count"),
-                    pacientes=("paciente_id", "nunique"),
-                    custo_total=("custo_estimado", "sum"),
-                    ticket_medio=("custo_estimado", "mean"),
-                ).sort_values("processos", ascending=False).head(15)
-                tab["custo_total"] = tab["custo_total"].map(lambda x: br_money(x, compact=False))
-                tab["ticket_medio"] = tab["ticket_medio"].map(lambda x: br_money(x, compact=False))
-                st.dataframe(tab.rename(columns={"regiao": "Região", "uf": "UF", "municipio": "Município", "processos": "Processos", "pacientes": "Pacientes", "custo_total": "Custo Total", "ticket_medio": "Ticket Médio"}), hide_index=True, use_container_width=True, height=340)
-    
+        _render_geography(dff, k)
     elif pagina == "Pacientes":
-        pacientes_unicos = dff.drop_duplicates("paciente_id")
+        _render_patients(dff)
+    elif pagina in {"Prevenção", "Prevenção de Judicialização", "Prevenção de judicialização"}:
+        _render_prevention(dff)
+    elif pagina == "Base de Dados":
+        _render_database(dff)
 
-        if user_role == "usuario":
-            # Na visão individual não faz sentido exibir métricas populacionais
-            # (percentual por sexo, condição líder, quantidade de pacientes etc.).
-            idade_paciente = pd.to_numeric(pacientes_unicos["idade"], errors="coerce").dropna()
-            idade_texto = "Não informada" if idade_paciente.empty else f"{br_int(idade_paciente.iloc[0])} anos"
-            idade_col, _ = st.columns([1, 4])
-            with idade_col:
-                metric_card("Idade", idade_texto, "idade do paciente", "🎂", "icon-blue")
+
+def _render_overview(dff, base, k, participacao, part_custo):
+    result = judgment_summary(dff)
+    judged = dff[dff["desfecho"].isin(["Procedente", "Parcialmente procedente", "Improcedente"])]
+    rate = _rate(judged, judged["desfecho"].eq("Procedente")) if result["julgados"] else "Não se aplica"
+    _cards([
+        ("Total de Processos", br_int(len(dff)), f"{br_float(participacao)}% da base; unidade: processo", "📄", "icon-blue"),
+        ("Pacientes Ativos", br_int(dff["paciente_id"].nunique()), "pessoas distintas com processo no recorte", "👥", "icon-green"),
+        ("Custo Total", br_money(dff["custo_estimado"].sum()), f"{br_float(part_custo)}% do custo estimado da base", "$", "icon-green"),
+        ("Tempo Médio", f"{br_int(dff['tempo_tramitacao_dias'].mean())} dias", "soma dos tempos ÷ processos do recorte", "⏱", "icon-orange"),
+        ("Taxa de Procedência", rate, "somente procedentes ÷ julgados de mérito", "⚖", "icon-purple"),
+    ])
+    st.caption("Tempo de tramitação: do ajuizamento ao julgamento ou desfecho registrado; nos casos em andamento, até a data de referência dos cálculos. A média usa todos os processos do recorte.")
+    with st.container(border=True, key="manager_panel_como_interpretar_os_resultados"):
+        section_title("Como interpretar os resultados")
+        _cards([
+            ("Parcialmente procedentes", _rate(judged, judged["desfecho"].eq("Parcialmente procedente")) if result["julgados"] else "Não se aplica", "parcialmente procedentes ÷ julgados de mérito", "◐", "icon-orange"),
+            ("Pendentes de julgamento", _count(dff, dff["desfecho"].eq("Em andamento")), "em andamento; fora do denominador de procedência", "⌛", "icon-blue"),
+            ("Acordos", _count(dff, dff["desfecho"].eq("Acordo")), "composição entre as partes; fora da taxa", "🤝", "icon-purple"),
+        ])
+        denominator = _count(dff, dff["desfecho"].isin(["Procedente", "Parcialmente procedente", "Improcedente"]))
+        st.caption(f"Denominador dos percentuais de mérito: {denominator} processos julgados no recorte.")
+        st.caption("Julgados de mérito = Procedente + Parcialmente procedente + Improcedente. Acordos, extinções, recursos sem julgamento registrado e processos em andamento não entram na taxa. Sem julgados, a taxa não se aplica. Resultado favorável não significa entrega do tratamento.")
+    a, b = st.columns([1.4, 1])
+    with a:
+        with st.container(border=True, key="manager_panel_evolucao_mensal_dos_processos"):
+            section_title("Evolução mensal dos processos")
+            _plot(monthly_line(dff.assign(qtd=1), "qtd", "Processos"), key="overview:monthly_processes")
+    with b:
+        _distribution(dff, "desfecho", "Desfecho processual")
+    a, b = st.columns(2)
+    with a:
+        _distribution(dff, "natureza", "Natureza da ação")
+    with b:
+        _ranking(dff, "item_demandado", "Itens mais demandados", separate=True)
+
+
+def _render_demands(dff, k):
+    _cards([
+        ("Processos Urgentes", _count(dff, dff["urgente"].eq("Sim")), "pedidos de análise urgente; não equivale a concessão de liminar", "🔔", "icon-orange"),
+        ("Taxa de Liminares", _rate(dff, dff["liminar"].eq("Sim")), "liminares concedidas ÷ processos no recorte", "⚖", "icon-purple"),
+        ("Itens Distintos", br_int(dff["item_demandado"].nunique()), "medicamentos, procedimentos e serviços", "💊", "icon-blue"),
+    ])
+    with st.expander("Como interpretar liminares, urgência e desfecho"):
+        st.markdown(
+            "**Liminares concedidas:** decisões provisórias favoráveis registradas. "
+            "Percentual = processos com liminar concedida ÷ todos os processos do recorte × 100. "
+            "A marcação ‘Não’ não permite distinguir pedido indeferido, ainda não analisado ou não apresentado; "
+            "por isso, este indicador não é a taxa de deferimento entre pedidos de liminar.\n\n"
+            "**Processos urgentes:** quantidade de processos com pedido de análise urgente registrado. "
+            "Essa marcação não identifica automaticamente pedido de tutela, classificação processual de prioridade "
+            "ou risco assistencial comprovado. Não significa que houve concessão de liminar.\n\n"
+            "**Desfecho:** resultado judicial registrado, separado da fase processual e da entrega do tratamento. "
+            "Procedente = pedido acolhido integralmente; parcialmente procedente = acolhido em parte; "
+            "improcedente = pedido rejeitado; acordo = solução acordada entre as partes; "
+            "extinto = processo encerrado conforme o registro, sem presumir vitória ou derrota; "
+            "em andamento = sem resultado final registrado. Recurso é uma etapa processual e não um desfecho; "
+            "a existência de decisão não comprova trânsito em julgado."
+        )
+        st.caption("Todos os indicadores consideram os filtros selecionados. Contagens e percentuais que exponham grupos pequenos são protegidos.")
+    a, b = st.columns(2)
+    with a:
+        with st.container(border=True, key="manager_panel_demandas_por_tipo_e_fase_processual"):
+            section_title("Demandas por tipo e fase processual")
+            phase = protected_aggregate(dff, ["tipo_demanda", "fase_processual"])
+            if not phase.empty:
+                phase["% do recorte"] = phase["processos"].map(lambda value: f"{br_float(pct(value, len(dff)))}%")
+            _table(phase[["tipo_demanda", "fase_processual", "processos", "pacientes", "% do recorte"]] if not phase.empty else phase)
+    with b:
+        _ranking(dff, "especialidade", "Especialidades mais acionadas", separate=True)
+    with st.container(border=True, key="manager_panel_causas_da_judicializacao_e_oportunidades_de_gestao"):
+        section_title("Causas da judicialização e oportunidades de gestão")
+        if "causa_judicializacao" not in dff:
+            st.info("A causa da judicialização ainda não foi informada nesta base.")
         else:
-            cols = st.columns(5)
-            fem = pct((pacientes_unicos["sexo"] == "Feminino").sum(), len(pacientes_unicos))
-            masc = pct((pacientes_unicos["sexo"] == "Masculino").sum(), len(pacientes_unicos))
-            maior_cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 1, "count")
-            cards = [
-                ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
-                ("Idade Média", f"{br_float(k['idade_media'])} anos", "média dos pacientes", "🎂", "icon-blue"),
-                ("% Feminino", f"{br_float(fem)}%", "distribuição por sexo", "♀", "icon-purple"),
-                ("% Masculino", f"{br_float(masc)}%", "distribuição por sexo", "♂", "icon-blue"),
-                ("Condição Líder", maior_cond["condicao_clinica"].iloc[0] if not maior_cond.empty else "-", "maior frequência", "🫀", "icon-orange"),
-            ]
-            for col, card in zip(cols, cards):
-                with col:
-                    metric_card(*card)
-    
-        selected_patient_id = None
-        if paciente_ids_sel and len(paciente_ids_sel) == 1:
-            selected_patient_id = paciente_ids_sel[0]
-        elif len(dff["paciente_id"].unique()) == 1:
-            selected_patient_id = dff["paciente_id"].iloc[0]
-    
-        if selected_patient_id:
-            p_df = dff[dff["paciente_id"] == selected_patient_id].sort_values("data_ajuizamento", ascending=False)
-            p = p_df.iloc[0]
-            idade = "Não informada" if pd.isna(p["idade"]) else f"{int(p['idade'])} anos"
-            with st.container(border=True):
-                st.markdown(
-                    f"""
-                    <div class="patient-box">
-                        <div class="patient-name">{escape(str(p['paciente']))}</div>
-                        <div class="patient-sub">{escape(str(p['paciente_id']))} · CPF {escape(str(p['cpf']))} · {escape(str(p['municipio']))}/{escape(str(p['uf']))}</div>
-                        <span class="tag">{escape(str(p['sexo']))}</span>
-                        <span class="tag">{escape(idade)}</span>
-                        <span class="tag">{escape(str(p['faixa_etaria']))}</span>
-                        <span class="tag">{escape(str(p['condicao_clinica']))}</span>
-                        <span class="tag">SUS exclusivo: {escape(str(p['sus_exclusivo']))}</span>
-                        <span class="tag">Renda: {escape(str(p['renda_familiar']))}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                p_cols = st.columns(5)
-                vals = [
-                    ("Processos", br_int(len(p_df)), "no recorte", "📄", "icon-blue"),
-                    ("Custo acumulado", br_money(p_df["custo_estimado"].sum()), "soma dos processos", "$", "icon-green"),
-                    ("Ticket médio", br_money(p_df["custo_estimado"].mean()), "por processo", "🧾", "icon-purple"),
-                    ("Liminares", br_int((p_df["liminar"] == "Sim").sum()), "processos com liminar", "⚖️", "icon-orange"),
-                    ("Tempo médio", f"{br_int(p_df['tempo_tramitacao_dias'].mean())} dias", "tramitação", "⏱", "icon-blue"),
-                ]
-                for col, card in zip(p_cols, vals):
-                    with col:
-                        metric_card(*card)
-                section_title("Processos do paciente selecionado")
-                show_cols = ["processo_id", "data_ajuizamento", "natureza", "tipo_demanda", "item_demandado", "medicamento_dcb", "cid", "rename_incorporado", "competencia_petsus", "especialidade", "fase_processual", "desfecho", "liminar", "urgente", "custo_estimado"]
-                tabela_p = p_df[show_cols].copy()
-                tabela_p["data_ajuizamento"] = tabela_p["data_ajuizamento"].dt.strftime("%d/%m/%Y")
-                tabela_p["custo_estimado"] = tabela_p["custo_estimado"].map(lambda x: br_money(x, compact=False))
-                st.dataframe(tabela_p.rename(columns={
-                    "processo_id": "Processo", "data_ajuizamento": "Data", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "competencia_petsus": "Competência", "especialidade": "Especialidade", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente", "custo_estimado": "Custo"
-                }), hide_index=True, use_container_width=True, height=260)
-    
-        if user_role != "usuario":
-            a, b, c = st.columns([1.2, 1.0, 1.25])
-            with a:
-                with st.container(border=True):
-                    section_title("Faixa etária dos pacientes")
-                    faixa = pacientes_unicos.groupby("faixa_etaria", as_index=False).size().rename(columns={"size": "pacientes"})
-                    order = ["0 a 18", "19 a 30", "31 a 40", "41 a 50", "51 a 60", "61 a 70", "71+"]
-                    faixa["ordem"] = faixa["faixa_etaria"].map({v: i for i, v in enumerate(order)})
-                    faixa = faixa.sort_values("ordem")
-                    fig = px.bar(faixa, x="faixa_etaria", y="pacientes", text=faixa["pacientes"].map(br_int))
-                    fig.update_traces(marker_color="#125CC9")
-                    fig.update_layout(**chart_layout(height=330))
-                    fig.update_yaxes(showgrid=True, gridcolor="#E8EDF5", zeroline=False)
-                    fig.update_xaxes(showgrid=False)
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-            with b:
-                with st.container(border=True):
-                    section_title("Distribuição por sexo")
-                    sexo = pacientes_unicos.groupby("sexo", as_index=False).size().rename(columns={"size": "pacientes"})
-                    st.plotly_chart(donut(sexo, "sexo", "pacientes", f"{br_int(k['pacientes'])}<br>Pacientes", height=330), use_container_width=True, config={"displayModeBar": False})
-            with c:
-                with st.container(border=True):
-                    section_title("Condições clínicas mais frequentes")
-                    cond = top_group(pacientes_unicos, "condicao_clinica", "paciente_id", 10, "count")
-                    cond["texto"] = cond["valor"].map(br_int)
-                    st.plotly_chart(barh(cond, "condicao_clinica", "valor", "texto", height=330, color="#39A74A"), use_container_width=True, config={"displayModeBar": False})
-    
-        d, e = st.columns([1.05, 1.5])
-        with d:
-            with st.container(border=True):
-                section_title("Perfil socioassistencial")
-                socio = pd.DataFrame({
-                    "Indicador": ["SUS exclusivo", "PCD", "Doença rara", "Renda até 1 SM"],
-                    "Pacientes": [
-                        int((pacientes_unicos["sus_exclusivo"] == "Sim").sum()),
-                        int((pacientes_unicos["pcd"] == "Sim").sum()),
-                        int((pacientes_unicos["doenca_rara"] == "Sim").sum()),
-                        int((pacientes_unicos["renda_familiar"] == "Até 1 salário mínimo").sum()),
-                    ],
-                })
-                socio["% do total"] = socio["Pacientes"].map(lambda x: f"{br_float(pct(x, len(pacientes_unicos)))}%")
-                socio["Pacientes"] = socio["Pacientes"].map(br_int)
-                st.dataframe(socio, hide_index=True, use_container_width=True, height=260)
-        with e:
-            with st.container(border=True):
-                section_title("Custo acumulado dos meus processos" if user_role == "usuario" else "Pacientes com maior custo acumulado")
-                tab = dff.groupby(["paciente_id", "paciente", "cpf"], as_index=False).agg(
-                    processos=("processo_id", "count"),
-                    custo_total=("custo_estimado", "sum"),
-                    ultimo_processo=("data_ajuizamento", "max"),
-                ).sort_values("custo_total", ascending=False).head(12)
-                tab["custo_total"] = tab["custo_total"].map(lambda x: br_money(x, compact=False))
-                tab["ultimo_processo"] = tab["ultimo_processo"].dt.strftime("%d/%m/%Y")
-                st.dataframe(tab.rename(columns={"paciente_id": "ID", "paciente": "Paciente", "cpf": "CPF", "processos": "Processos", "custo_total": "Custo Total", "ultimo_processo": "Último Processo"}), hide_index=True, use_container_width=True, height=310)
-    
-    else:  # Base de Dados
-        if user_role == "usuario":
-            cards = [
-                ("Meus processos", br_int(k["total"]), "processos vinculados", "🔎", "icon-blue"),
-                ("Custo total", br_money(k["custo"]), "soma dos processos", "$", "icon-green"),
-                ("Itens", br_int(dff["item_demandado"].nunique()), "itens distintos", "💊", "icon-orange"),
-            ]
-        else:
-            cards = [
-                ("Registros filtrados", br_int(k["total"]), f"{br_float(participacao)}% da base", "🔎", "icon-blue"),
-                ("Pacientes", br_int(k["pacientes"]), "pacientes únicos", "👥", "icon-green"),
-                ("Custo total", br_money(k["custo"]), "soma filtrada", "$", "icon-green"),
-                ("Municípios", br_int(k["municipios"]), "municípios únicos", "📍", "icon-purple"),
-                ("Itens", br_int(dff["item_demandado"].nunique()), "itens distintos", "💊", "icon-orange"),
-            ]
-        cols = st.columns(len(cards))
-        for col, card in zip(cols, cards):
-            with col:
-                metric_card(*card)
-    
-        with st.container(border=True):
-            section_title("Base detalhada filtrada")
-            st.caption("A tabela abaixo contém somente os seus registros." if user_role == "usuario" else "A tabela abaixo respeita todos os filtros da barra lateral, inclusive o filtro por paciente.")
-            show_cols = [
-                "processo_id", "data_ajuizamento", "paciente_id", "paciente", "cpf", "sexo", "idade", "faixa_etaria",
-                "municipio", "uf", "regiao", "condicao_clinica", "natureza", "tipo_demanda", "item_demandado", "especialidade",
-                "medicamento_dcb", "cid", "rename_incorporado", "componente_sus", "grupo_sus", "apresentacao_padronizada",
-                "pcdt_aplicavel", "pcdt_referencia", "dose_prescrita", "frequencia_administracao", "duracao_meses", "pmvg_referencia",
-                "valor_anual_tratamento", "valor_causa_estimado", "competencia_petsus", "reu_sugerido", "criterio_competencia",
-                "acima_210_salarios_minimos", "etapa_judicial", "percentual_judicial", "etapa_saude", "percentual_saude",
-                "status_andamento", "decisao_urgencia", "data_intimacao", "prazo_cumprimento_dias",
-                "data_limite_cumprimento", "indicador_atraso", "proxima_acao_judicial", "proxima_acao_saude",
-                "origem_informacao", "esfera", "fase_processual", "desfecho", "liminar", "urgente", "tempo_tramitacao_dias", "custo_estimado"
-            ]
-            table = dff[show_cols].copy().sort_values("data_ajuizamento", ascending=False)
-            table["data_ajuizamento"] = table["data_ajuizamento"].dt.strftime("%d/%m/%Y")
-            table_view = table.rename(columns={
-                "processo_id": "Processo", "data_ajuizamento": "Data", "paciente_id": "ID Paciente", "paciente": "Paciente", "cpf": "CPF",
-                "sexo": "Sexo", "idade": "Idade", "faixa_etaria": "Faixa", "municipio": "Município", "uf": "UF", "regiao": "Região",
-                "condicao_clinica": "Condição", "natureza": "Natureza", "tipo_demanda": "Tipo", "item_demandado": "Item", "especialidade": "Especialidade",
-                "medicamento_dcb": "DCB", "cid": "CID", "rename_incorporado": "RENAME", "componente_sus": "Componente SUS", "grupo_sus": "Grupo SUS",
-                "apresentacao_padronizada": "Apresentação", "pcdt_aplicavel": "PCDT", "pcdt_referencia": "PCDT de Referência", "dose_prescrita": "Dose", "frequencia_administracao": "Frequência",
-                "duracao_meses": "Duração (meses)", "pmvg_referencia": "PMVG Referência", "valor_anual_tratamento": "Valor Anual Tratamento",
-                "valor_causa_estimado": "Valor da Causa", "competencia_petsus": "Competência PetSUS", "reu_sugerido": "Réu Sugerido",
-                "criterio_competencia": "Critério de Competência", "acima_210_salarios_minimos": "≥ 210 SM",
-                "etapa_judicial": "Etapa Judicial", "percentual_judicial": "Andamento Judicial (%)",
-                "etapa_saude": "Cumprimento na Saúde", "percentual_saude": "Cumprimento na Saúde (%)",
-                "status_andamento": "Status do Acompanhamento", "decisao_urgencia": "Decisão de Urgência",
-                "data_intimacao": "Data da Intimação", "prazo_cumprimento_dias": "Prazo (dias)",
-                "data_limite_cumprimento": "Data Limite", "indicador_atraso": "Prazo Vencido",
-                "proxima_acao_judicial": "Próxima Ação Judicial", "proxima_acao_saude": "Próxima Ação na Saúde",
-                "origem_informacao": "Origem da Informação",
-                "esfera": "Esfera", "fase_processual": "Fase", "desfecho": "Desfecho", "liminar": "Liminar", "urgente": "Urgente",
-                "tempo_tramitacao_dias": "Tempo (dias)", "custo_estimado": "Custo Estimado"
-            })
-            st.dataframe(
-                table_view,
-                hide_index=True,
-                use_container_width=True,
-                height=520,
-                column_config={
-                    "Custo Estimado": st.column_config.NumberColumn("Custo Estimado", format="R$ %.2f"),
-                    "PMVG Referência": st.column_config.NumberColumn("PMVG Referência", format="R$ %.2f"),
-                    "Valor Anual Tratamento": st.column_config.NumberColumn("Valor Anual Tratamento", format="R$ %.2f"),
-                    "Valor da Causa": st.column_config.NumberColumn("Valor da Causa", format="R$ %.2f"),
-                },
+            causes = protected_aggregate(dff, ["causa_judicializacao"])
+            causes["% dos processos do recorte"] = causes["processos"].map(lambda value: f"{br_float(pct(value, len(dff)))}%")
+            actions = {
+                "Falta de oferta": "Avaliar cobertura e capacidade da rede de atendimento.",
+                "Falta pontual de medicamento": "Revisar estoque, compra e reposição do medicamento.",
+                "Falta de prestador": "Verificar contratação e disponibilidade de prestadores.",
+                "Ausência de vaga": "Revisar capacidade, fila e alternativas de atendimento.",
+                "Demora na regulação": "Revisar fila, prioridade e prazo de encaminhamento.",
+                "Negativa administrativa": "Revisar o motivo da negativa e os critérios de acesso.",
+                "Falha de comunicação": "Confirmar orientação e canais de contato com o usuário.",
+                "Falta de encaminhamento adequado": "Corrigir o encaminhamento e acompanhar sua aceitação.",
+                "Demanda de competência de outro ente": "Articular encaminhamento ao ente responsável e acompanhar retorno.",
+                "Serviço disponível, mas não acessado": "Verificar barreiras de agendamento, transporte e informação.",
+                "Aguardando fluxo regular": "Informar o prazo e avaliar a necessidade de revisão do atendimento.",
+            }
+            causes["Ação sugerida à gestão"] = causes["causa_judicializacao"].map(actions).fillna("Revisar a classificação e identificar a barreira de acesso.")
+            _table(causes[["causa_judicializacao", "processos", "pacientes", "% dos processos do recorte", "Ação sugerida à gestão"]].sort_values("processos", ascending=False), height=460)
+            st.caption("Motivo registrado para o acesso à Justiça, sujeito à conferência da equipe. As ações são sugestões de investigação administrativa, sem presumir causalidade ou dispensar a análise individual. Percentuais usam todos os processos do recorte; grupos protegidos podem não aparecer.")
+
+
+def _medication_subset(dff):
+    med = dff[dff["medicamento_petsus"].eq("Sim")].copy()
+    med["componente_sus"] = med["componente_sus"].replace({
+        "CBAF": "Assistência básica (CBAF)", "CEAF": "Assistência especializada (CEAF)",
+        "CESAF": "Assistência estratégica (CESAF)", "AF Onco": "Assistência oncológica",
+    })
+    st.info("Consulte medicamentos, protocolos, custos e responsabilidades administrativas. Confirme a disponibilidade com a rede de saúde e as informações jurídicas com o órgão responsável.")
+    if med["paciente_id"].nunique() < MIN_PATIENTS:
+        st.info("Nenhum grupo de medicamentos publicável com estes filtros. São necessários pelo menos 5 pacientes distintos.")
+        return None
+    st.caption(f"Denominador desta análise: {br_int(len(med))} demandas de medicamentos, de {br_int(med['paciente_id'].nunique())} pacientes distintos; não é o total de processos de outras naturezas.")
+    return med
+
+
+def _cost_definitions():
+    st.caption("Os três valores medem conceitos diferentes e não devem ser somados: custo estimado dos processos = estimativa do atendimento judicializado; tratamento para 12 meses = projeção anual; valor da causa = estimativa processual. Nenhum comprova gasto executado. O preço estimado por administração é valor anual dividido pelo número de administrações anuais; não é cotação oficial PMVG. Uma cotação CMED exige apresentação e quantidade de unidades.")
+
+
+def _render_medications(dff):
+    med = _medication_subset(dff)
+    if med is None:
+        return
+    _cards([
+        ("Demandas de medicamentos", br_int(len(med)), "denominador: demandas de medicamentos filtradas", "💊", "icon-blue"),
+        ("DCB distintos", br_int(med["medicamento_dcb"].nunique()), "princípios ativos; não apresentações", "🧪", "icon-purple"),
+        ("Incorporados à RENAME", _rate(med, med["rename_incorporado"].eq("Sim")), "demandas incorporadas ÷ demandas de medicamentos", "✓", "icon-green"),
+        ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "projeção de 12 meses; não gasto executado", "📈", "icon-green"),
+    ])
+    _cost_definitions()
+    a, b = st.columns(2)
+    with a:
+        _distribution(med, "rename_incorporado", "Incorporação à lista RENAME")
+    with b:
+        _distribution(med, "pcdt_aplicavel", "Existência de protocolo clínico (PCDT)")
+    with st.container(border=True, key="manager_panel_assistencia_farmaceutica_e_dispensacao_administrativa"):
+        section_title("Assistência farmacêutica e dispensação administrativa")
+        st.write("Compare quantos processos solicitam medicamentos da assistência básica, especializada e dos demais componentes. O ente de dispensação é apresentado conforme o cadastro do medicamento.")
+        groups = ["componente_sus"]
+        if "ente_dispensacao_simulado" in med:
+            groups.append("ente_dispensacao_simulado")
+        comp = protected_aggregate(med, groups)
+        # Zero é ausência de casos, não uma célula pequena: mantém visível a
+        # comparação entre assistência básica, especializada e estratégica.
+        for component, dispensing in [
+            ("Assistência básica (CBAF)", "Município"),
+            ("Assistência especializada (CEAF)", "Estado"),
+            ("Assistência estratégica (CESAF)", "Compartilhada"),
+        ]:
+            if not med["componente_sus"].eq(component).any():
+                row = {"componente_sus": component, "processos": 0, "pacientes": 0}
+                if "ente_dispensacao_simulado" in groups:
+                    row["ente_dispensacao_simulado"] = "Não se aplica — sem demandas"
+                comp = pd.concat([comp, pd.DataFrame([row])], ignore_index=True)
+        comp["% das demandas de medicamentos"] = comp["processos"].map(lambda value: f"{br_float(pct(value, len(med)))}%")
+        _table(comp[groups + ["processos", "pacientes", "% das demandas de medicamentos"]])
+        st.caption("Assistência básica, especializada e estratégica são componentes distintos. A dispensação administrativa identifica quem organiza o fornecimento e pode envolver pactuação entre entes. Ela não define automaticamente o réu nem a competência judicial.")
+        st.caption("O percentual usa todas as demandas de medicamentos dos filtros atuais. Grupos com poucos pacientes são protegidos e, por isso, as linhas visíveis podem não somar 100%.")
+    with st.container(border=True, key="manager_panel_classificacao_por_medicamento"):
+        section_title("Classificação e dispensação por medicamento")
+        groups = ["medicamento_dcb", "rename_incorporado", "componente_sus"]
+        if "ente_dispensacao_simulado" in med:
+            groups.append("ente_dispensacao_simulado")
+        classification = protected_aggregate(med, groups)
+        classification["% das demandas de medicamentos"] = classification["processos"].map(lambda value: f"{br_float(pct(value, len(med)))}%")
+        _table(classification[groups + ["processos", "pacientes", "% das demandas de medicamentos"]].sort_values("processos", ascending=False), height=460)
+        with st.expander("Como interpretar a classificação do medicamento"):
+            st.markdown(
+                "**RENAME:** Relação Nacional de Medicamentos Essenciais. A coluna mostra a incorporação informada no cadastro.\n\n"
+                "**Assistência básica (CBAF):** Componente Básico da Assistência Farmacêutica.\n\n"
+                "**Assistência especializada (CEAF):** Componente Especializado da Assistência Farmacêutica.\n\n"
+                "**Assistência estratégica (CESAF):** Componente Estratégico da Assistência Farmacêutica.\n\n"
+                "**Dispensação administrativa:** ente indicado no cadastro para organizar o fornecimento. "
+                "Confirme o fluxo com a rede de saúde, considerando o medicamento, o protocolo e a pactuação local. "
+                "Esse campo é separado da competência judicial, que indica qual ramo da Justiça analisa o processo."
             )
-    
-            csv = table.to_csv(index=False).encode("utf-8-sig")
-            c1, c2, c3 = st.columns([1, 1.35, 3.65])
+    a, b = st.columns(2)
+    with a:
+        _ranking(med, "medicamento_dcb", "Princípios ativos mais demandados")
+    with b:
+        _ranking(med, "medicamento_dcb", "Projeção de 12 meses por princípio ativo", "valor_anual_tratamento", "sum")
+    with st.container(border=True, key="manager_panel_estimativa_sintetica_de_preco_por_administracao"):
+        section_title("Estimativa de preço por administração")
+        detail = protected_aggregate(med, ["medicamento_dcb", "apresentacao_padronizada"],
+            preco_minimo=("pmvg_referencia", "min"), preco_maximo=("pmvg_referencia", "max"),
+            valor_anual=("valor_anual_tratamento", "sum"))
+        detail = detail.rename(columns={"preco_minimo": "Menor preço estimado por administração (R$)", "preco_maximo": "Maior preço estimado por administração (R$)"})
+        _table(detail[["medicamento_dcb", "apresentacao_padronizada", "processos", "Menor preço estimado por administração (R$)", "Maior preço estimado por administração (R$)", "valor_anual"]])
+        st.caption("Cenários agrupados pelo mesmo item e apresentação. Os preços derivam da projeção anual; não são consulta à CMED nem PMVG médio entre medicamentos.")
+
+
+def _render_responsibility_detail(dff):
+    with st.container(border=True, key="manager_panel_responsabilidade_por_processo"):
+        section_title("Responsabilidade indicada por processo")
+        st.caption("Consulta operacional para apoiar a revisão do ente responsável. A indicação vem do cadastro e precisa de avaliação jurídica antes da definição das partes da ação.")
+        rows = dff.drop_duplicates("processo_id").copy()
+        ids = rows["processo_id"].astype(str)
+        selected = st.selectbox("Consultar responsabilidade do processo", ids.tolist(), index=None,
+            placeholder="Selecione ou digite o número do processo", key="competency_process")
+        if selected is None:
+            return
+        process = rows.loc[ids.eq(selected)].iloc[0]
+        entity = str(process.get("ente_responsavel", "Não informado"))
+        messages = {
+            "Município": "Responsabilidade municipal indicada. Conferir as atribuições e o fluxo aplicável ao pedido.",
+            "Estado": "Responsabilidade estadual indicada. Revisar o encaminhamento ao Estado, evitando atribuir o atendimento exclusivamente ao Município sem análise do caso.",
+            "União": "Responsabilidade da União indicada. Revisar a participação do ente federal e o fluxo de atendimento aplicável.",
+            "Compartilhada": "Responsabilidade compartilhada indicada. Identificar os entes envolvidos e pactuar as atribuições; o cadastro não detalha a participação de cada um.",
+        }
+        st.markdown(f"**Processo:** {escape(str(selected))}")
+        st.metric("Ente responsável indicado", entity if entity in messages else "Não informado")
+        st.info(messages.get(entity, "Não há classificação suficiente para indicar o ente responsável. Encaminhe o registro para revisão."))
+        for label, column in [("Item demandado", "item_demandado"), ("Réu sugerido no cadastro", "reu_sugerido"), ("Dispensação administrativa", "ente_dispensacao_simulado"), ("Competência judicial", "competencia_petsus")]:
+            value = process.get(column)
+            if pd.notna(value) and str(value).strip():
+                st.markdown(f"**{label}:** {escape(str(value))}")
+        st.caption("Responsabilidade administrativa, réu sugerido e competência judicial são campos distintos. Esta consulta não determina automaticamente contra quem propor a ação.")
+
+
+def _render_competency(dff):
+    st.info("Responsabilidade administrativa pelo fornecimento e competência judicial são dimensões diferentes.")
+    if "ente_responsavel" in dff:
+        _cards([
+            (ente, _rate(dff, dff["ente_responsavel"].eq(ente)), "percentual de todos os processos filtrados; responsabilidade indicada", "🏛", "icon-blue")
+            for ente in ["Município", "Estado", "União", "Compartilhada"]
+        ])
+        _distribution(dff, "ente_responsavel", "Ente responsável pela demanda", height=290)
+        shared = dff["ente_responsavel"].isin(["Estado", "União", "Compartilhada"])
+        _cards([("Participação de outros entes", _rate(dff, shared), "Estado, União ou responsabilidade compartilhada ÷ processos filtrados; indica casos para revisão da atribuição exclusiva ao Município", "🏛", "icon-blue")])
+        _render_responsibility_detail(dff)
+    med = _medication_subset(dff)
+    if med is None:
+        return
+    _cards([
+        ("Justiça Federal", _rate(med, med["competencia_petsus"].eq("Justiça Federal")), "percentual das demandas de medicamentos; simulação", "🏛", "icon-blue"),
+        ("Justiça Estadual", _rate(med, med["competencia_petsus"].eq("Justiça Estadual")), "percentual das demandas de medicamentos; simulação", "⚖", "icon-green"),
+        ("Valor da causa estimado", br_money(med["valor_causa_estimado"].sum()), "estimativa processual, não custo executado", "$", "icon-purple"),
+    ])
+    _cost_definitions()
+    if {"salario_minimo_ajuizamento", "limite_210_sm_ajuizamento"}.issubset(med.columns):
+        with st.container(border=True, key="manager_panel_referencia_temporal_da_simulacao"):
+            section_title("Referência temporal da simulação")
+            temporal = med.assign(ano=pd.to_datetime(med["data_ajuizamento"]).dt.year)
+            limits = protected_aggregate(temporal, ["ano"], salario_minimo_ajuizamento=("salario_minimo_ajuizamento", "first"), limite_210_sm_ajuizamento=("limite_210_sm_ajuizamento", "first"))
+            _table(limits[["ano", "salario_minimo_ajuizamento", "limite_210_sm_ajuizamento", "processos"]], height=200)
+            st.caption("O cálculo compara o valor anual com 210 salários mínimos do ano do ajuizamento de cada processo; não aplica um valor de 2026 a processos de 2024/2025. Critério sujeito a revisão jurídica conforme as normas aplicáveis e o caso concreto.")
+    a, b = st.columns(2)
+    with a:
+        _distribution(med, "competencia_petsus", "Competência judicial")
+    with b:
+        with st.container(border=True, key="manager_panel_competencia_e_incorporacao_a_rename"):
+            section_title("Competência e incorporação à RENAME")
+            cross = protected_aggregate(med, ["rename_incorporado", "competencia_petsus"])
+            fig = go.Figure()
+            for name in ["Justiça Federal", "Justiça Estadual"]:
+                values = cross[cross["competencia_petsus"].eq(name)]
+                fig.add_trace(go.Bar(x=values["rename_incorporado"], y=values["processos"], name=name, marker_color=semantic_color(name), text=values["processos"], textposition="auto"))
+            fig.update_layout(**chart_layout(height=340, showlegend=True, legend=dict(orientation="h", y=1.12, x=0)), barmode="stack")
+            fig.update_xaxes(title="Incorporado à lista RENAME")
+            fig.update_yaxes(title="Demandas de medicamentos", rangemode="tozero")
+            _plot(fig, key="competency:rename_cross")
+    with st.container(border=True, key="manager_panel_responsabilidade_administrativa_e_judicial_simuladas"):
+        section_title("Responsabilidade administrativa e judicial")
+        groups = [column for column in ["componente_sus", "ente_dispensacao_simulado", "ente_responsavel", "competencia_petsus"] if column in med]
+        table = protected_aggregate(med, groups)
+        _table(table[groups + ["processos", "pacientes"]])
+
+
+def _render_costs(dff, k, part_custo):
+    _cards([
+        ("Custo Total", br_money(dff["custo_estimado"].sum()), "estimativa por processo; não gasto executado", "$", "icon-green"),
+        ("Ticket Médio", br_money(dff["custo_estimado"].mean()), "soma estimada ÷ processos do recorte", "🧾", "icon-blue"),
+        ("Custo Medicamentos", br_money(dff.loc[dff["natureza"].eq("Medicamentos"), "custo_estimado"].sum()) if _publishable_subset(dff, dff["natureza"].eq("Medicamentos")) else "Suprimido", "custo estimado de processos de medicamentos no período", "💊", "icon-purple"),
+    ])
+    _cost_definitions()
+    a, b = st.columns(2)
+    with a:
+        with st.container(border=True, key="manager_panel_evolucao_mensal_do_custo_estimado"):
+            section_title("Evolução mensal do custo estimado")
+            _plot(monthly_line(dff, "custo_estimado", "Custo estimado", money=True, height=350), key="costs:monthly_cost")
+    with b:
+        _ranking(dff, "esfera", "Custo estimado por esfera judicial", "custo_estimado", "sum")
+    a, b = st.columns(2)
+    with a:
+        _ranking(dff, "item_demandado", "Itens com maior impacto financeiro", "custo_estimado", "sum")
+    with b:
+        _ranking(dff, "especialidade", "Custo estimado por especialidade", "custo_estimado", "sum")
+    with st.container(border=True, key="manager_panel_custo_tipico_e_dispersao_por_natureza"):
+        section_title("Custo típico e dispersão por natureza")
+        summary = protected_aggregate(dff, ["natureza"], custo_mediano=("custo_estimado", "median"), custo_q1=("custo_estimado", lambda values: values.quantile(.25)), custo_q3=("custo_estimado", lambda values: values.quantile(.75)))
+        _table(summary[["natureza", "processos", "pacientes", "custo_mediano", "custo_q1", "custo_q3"]])
+        st.caption("Mediana: metade dos processos custa até esse valor. Do 1º ao 3º quartil está a metade central dos custos (intervalo interquartil). A tabela usa todos os processos publicáveis, sem amostragem e sem misturar média com distribuição.")
+
+
+def _render_geography(dff, k):
+    _cards([
+        ("Municípios", br_int(dff["municipio"].nunique()), "municípios no recorte", "📍", "icon-blue"),
+        ("Custo por paciente", br_money(dff["custo_estimado"].sum() / dff["paciente_id"].nunique()), "estimativa ÷ pacientes distintos filtrados; não população municipal", "$", "icon-green"),
+    ])
+    geo = protected_aggregate(dff, ["municipio", "uf", "regiao", "latitude", "longitude"])
+    a, b = st.columns([1.4, 1])
+    with a:
+        with st.container(border=True, key="manager_panel_municipios_com_dados_publicaveis"):
+            section_title("Municípios com dados publicáveis")
+            if geo.empty:
+                _plot(empty_fig(), key="geography:map")
+            else:
+                fig = px.scatter_geo(geo, lat="latitude", lon="longitude", size="processos", color="regiao", color_discrete_map={region: semantic_color(region) for region in geo["regiao"].unique()}, hover_name="municipio", hover_data={"uf": True, "processos": True, "pacientes": True, "latitude": False, "longitude": False}, labels=LABELS, height=390)
+                fig.update_geos(showcountries=True, countrycolor="#CBD5E1", showland=True, landcolor="#F4F7FB", showocean=True, oceancolor="#E8F2FB", fitbounds="locations")
+                fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", y=1.02, x=0))
+                _plot(fig, key="geography:map")
+    with b:
+        _ranking(dff, "regiao", "Processos por região", height=390)
+    a, b = st.columns(2)
+    with a:
+        _ranking(dff, "municipio", "Municípios por processos")
+    with b:
+        _ranking(dff, "municipio", "Municípios por custo estimado", "custo_estimado", "sum")
+    with st.container(border=True, key="manager_panel_tabela_geografica_protegida"):
+        section_title("Tabela geográfica protegida")
+        _table(geo[["regiao", "uf", "municipio", "processos", "pacientes", "custo_total", "custo_medio"]].sort_values("processos", ascending=False))
+
+
+def _render_patients(dff):
+    patients = dff.drop_duplicates("paciente_id").copy()
+    _cards([
+        ("Pacientes", br_int(len(patients)), "pessoas distintas no recorte", "👥", "icon-green"),
+        ("Idade Média", f"{br_float(patients['idade'].mean())} anos", "soma das idades informadas ÷ pacientes com idade", "🎂", "icon-blue"),
+        ("% Feminino", _rate(patients, patients["sexo"].eq("Feminino")), "pacientes femininas ÷ pacientes distintos", "♀", "icon-purple"),
+    ])
+    a, b = st.columns(2)
+    with a:
+        with st.container(border=True, key="manager_panel_idade_em_intervalos_de_10_anos"):
+            section_title("Idade em intervalos de 10 anos")
+            ages = pd.to_numeric(patients["idade"], errors="coerce")
+            labels = [f"{start} a {start+9}" for start in range(0, 120, 10)]
+            patients["faixa_etaria"] = pd.cut(ages, bins=list(range(0, 121, 10)), labels=labels, right=False).astype("string").fillna("Idade não informada")
+            patients.loc[ages.ge(120), "faixa_etaria"] = "120 ou mais (intervalo aberto)"
+            age_table = protected_aggregate(patients, ["faixa_etaria"])
+            age_order = labels + ["120 ou mais (intervalo aberto)", "Idade não informada"]
+            age_table = age_table.sort_values("faixa_etaria", key=lambda values: values.map({label: index for index, label in enumerate(age_order)}))
+            _plot(distribution_bar(age_table, "faixa_etaria", "pacientes", denominator=len(patients), height=430, preserve_order=True), key="patients:age")
+            st.caption("Todos os intervalos fechados cobrem 10 anos completos; eventual categoria de 120 anos ou mais é aberta. Pacientes sem idade válida aparecem em categoria própria. Unidade: paciente distinto.")
+    with b:
+        _distribution(patients, "sexo", "Distribuição por sexo", height=380, patients=True)
+    _ranking(patients, "condicao_clinica", "Condições clínicas mais frequentes")
+    with st.container(border=True, key="manager_panel_perfil_socioassistencial"):
+        section_title("Perfil socioassistencial")
+        rows = []
+        for title, column, value in [("SUS exclusivo", "sus_exclusivo", "Sim"), ("Pessoa com deficiência", "pcd", "Sim"), ("Doença rara", "doenca_rara", "Sim"), ("Renda até 1 salário mínimo", "renda_familiar", "Até 1 salário mínimo")]:
+            mask = patients[column].eq(value)
+            rows.append({"Indicador": title, "Pacientes distintos": _count(patients, mask), "% dos pacientes distintos": _rate(patients, mask)})
+        _table(pd.DataFrame(rows), height=220)
+    with st.container(border=True, key="manager_panel_distribuicao_do_custo_acumulado_por_paciente"):
+        section_title("Distribuição do custo acumulado por paciente")
+        totals = dff.groupby("paciente_id", as_index=False)["custo_estimado"].sum()
+        totals["processo_id"] = totals["paciente_id"]
+        totals["faixa_custo"] = pd.cut(totals["custo_estimado"], bins=[-1, 1000, 10000, 100000, float("inf")], labels=["Até R$ 1 mil", "Mais de R$ 1 mil até R$ 10 mil", "Mais de R$ 10 mil até R$ 100 mil", "Mais de R$ 100 mil"])
+        grouped = protected_aggregate(totals, ["faixa_custo"])
+        _table(grouped[["faixa_custo", "pacientes", "custo_total"]])
+        st.caption("A análise usa faixas com pelo menos 5 pacientes distintos. Nomes, CPFs e rankings individuais não são necessários nesta visão analítica. Para uma consulta operacional autorizada, use Andamento.")
+
+
+def _render_prevention(dff):
+    needed = {"judicializacao_potencialmente_evitavel", "causa_judicializacao"}
+    if not needed.issubset(dff.columns):
+        st.info("Esta base ainda não tem classificação de prevenção. Não é possível estimar o indicador sem esses dados.")
+        return
+    mask = dff["judicializacao_potencialmente_evitavel"].eq("Sim")
+    classified = dff["judicializacao_potencialmente_evitavel"].isin(["Sim", "Não"])
+    _cards([
+        ("Judicialização potencialmente evitável", _rate(dff, mask), "processos classificados como potencialmente evitáveis ÷ processos do recorte", "↻", "icon-green"),
+        ("Demandas potencialmente evitáveis", _count(dff, mask), "oportunidades de solução administrativa; hipótese de triagem", "📋", "icon-blue"),
+        ("Cobertura da classificação", _rate(dff, classified), "processos com classificação informada ÷ processos do recorte", "✓", "icon-purple"),
+    ])
+    st.info("O indicador identifica barreiras que podem ser avaliadas para solução administrativa ou mediação. A sinalização é potencial: não comprova que a ação poderia ter sido evitada nem restringe o acesso do paciente à Justiça.")
+    with st.expander("Como o indicador é calculado e quais motivos são considerados"):
+        st.markdown("**Percentual = processos classificados como potencialmente evitáveis ÷ total de processos dos filtros atuais × 100.** Cada processo entra uma vez na contagem. Registros sem classificação permanecem no total, mas não são contados como potencialmente evitáveis; consulte a cobertura para avaliar a completude do cadastro. ‘Não’ significa ausência de sinalização neste critério, sem afirmar que uma solução administrativa seria impossível.")
+        criteria = pd.DataFrame(PREVENTION_ACTIONS.items(), columns=["Motivo para triagem", "Encaminhamento a avaliar"])
+        st.dataframe(criteria, hide_index=True, use_container_width=True, column_config={column: st.column_config.TextColumn(column, width="large") for column in criteria})
+    if not mask.any():
+        st.info("Nenhuma demanda está sinalizada como potencialmente evitável nos filtros atuais. Confira a classificação antes de concluir que não há oportunidades de prevenção.")
+        return
+    with st.container(border=True, key="manager_panel_oportunidades_de_prevencao_por_causa"):
+        section_title("Oportunidades de prevenção por causa")
+        opportunities = dff.loc[mask].copy()
+        groups = ["causa_judicializacao"]
+        if "motivo_potencialmente_evitavel" not in opportunities:
+            opportunities["motivo_potencialmente_evitavel"] = opportunities["causa_judicializacao"].map(PREVENTION_ACTIONS).fillna("Validar o motivo e definir o encaminhamento com a equipe responsável.")
+        groups.append("motivo_potencialmente_evitavel")
+        table = protected_aggregate(opportunities, groups)
+        table["% de todos os processos filtrados"] = table["processos"].map(lambda value: f"{br_float(pct(value, len(dff)))}%")
+        table["% das demandas potencialmente evitáveis"] = table["processos"].map(lambda value: f"{br_float(pct(value, mask.sum()))}%")
+        _table(table[groups + ["processos", "pacientes", "% de todos os processos filtrados", "% das demandas potencialmente evitáveis"]].sort_values("processos", ascending=False), height=460)
+        st.caption("Priorize os motivos mais recorrentes. Cada linha mostra seu peso no recorte completo e entre as demandas sinalizadas. Grupos pequenos são protegidos; as linhas publicadas podem não somar 100%.")
+    with st.container(border=True, key="manager_panel_fluxo_de_prevencao"):
+        section_title("Próximos passos para a gestão")
+        st.markdown("1. Conferir a causa e a necessidade atual do paciente.\n2. Identificar o serviço ou ente responsável e a pendência de acesso.\n3. Avaliar encaminhamento administrativo ou mediação, com responsável e prazo.\n4. Confirmar o atendimento e acompanhar a resolução da barreira.")
+        st.caption("Os números representam oportunidades identificadas, não casos resolvidos ou redução comprovada de ações judiciais.")
+
+
+def _render_database(dff):
+    section_title("Base analítica protegida")
+    st.caption("A tabela e os arquivos agrupam os processos por município, natureza e tipo de demanda. Identificadores pessoais e processuais foram retirados desta visão; células pequenas seguem a mesma regra de supressão dos gráficos.")
+    table = protected_aggregate(dff, ["municipio", "uf", "natureza", "tipo_demanda"])
+    table = table[["municipio", "uf", "natureza", "tipo_demanda", "processos", "pacientes", "custo_total", "custo_medio", "tempo_medio"]].sort_values("processos", ascending=False)
+    _table(table, height=520)
+    if table.empty:
+        return
+    exported = mask_personal_data(table).rename(columns=LABELS)
+    a, b = st.columns(2)
+    with a:
+        st.download_button("Baixar CSV protegido", data=exported.to_csv(index=False).encode("utf-8-sig"), file_name="petsus_base_analitica_protegida.csv", mime="text/csv", key="protected_csv")
+    with b:
+        st.download_button("Baixar Excel protegido", data=to_excel_bytes(exported), file_name="petsus_base_analitica_protegida.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="protected_excel")
+
+
+def _render_tracking(dff, user_role="gestor"):
+    st.markdown(
+        """
+        <style>
+        .flow-title { display:flex; align-items:center; gap:.5rem; font-size:1.05rem; font-weight:900; color:#0B2459; margin:.7rem 0 .5rem; }
+        .flow-title .card-help { margin-left:0; }
+        .flow-track { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.6rem; margin-bottom:1rem; }
+        .flow-step { min-width:0; padding:.65rem .4rem; border:1px solid #DDE6F2; border-radius:13px; background:#F8FAFD; text-align:center; }
+        .flow-marker { width:28px; height:28px; border-radius:50%; margin:0 auto .4rem; display:flex; align-items:center; justify-content:center; background:#E5EAF1; color:#667085; font-weight:900; }
+        .flow-label { font-size:.74rem; line-height:1.18; color:#667085; font-weight:750; overflow-wrap:anywhere; }
+        .flow-step.done { background:#ECFDF3; border-color:#A7E3BC; }
+        .flow-step.done .flow-marker { background:#239B56; color:white; }
+        .flow-step.current { background:#EEF5FF; border:2px solid var(--track-color); box-shadow:0 4px 12px rgba(18,92,201,.12); }
+        .flow-step.current .flow-marker { background:var(--track-color); color:white; }
+        .flow-step.current .flow-label { color:#0B2459; }
+        [data-testid="stMetricValue"],
+        [data-testid="stMetricValue"] > div,
+        [data-testid="stMetricValue"] * {
+            font-size: clamp(1.05rem, 1.65vw, 1.6rem) !important;
+            line-height: 1.15 !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            overflow-wrap: anywhere !important;
+        }
+        @media(max-width:900px){.flow-track{grid-template-columns:repeat(2,minmax(0,1fr));}}
+        @media(max-width:520px){.flow-track{grid-template-columns:1fr;}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.info(
+        "Esta demonstração separa o andamento no Judiciário do cumprimento material na saúde. "
+        "Uma decisão favorável não significa, por si só, que o medicamento foi entregue ou que a cirurgia foi realizada."
+    )
+
+    if dff["paciente_id"].nunique() >= MIN_PATIENTS:
+        _cards([
+            ("Processos acompanhados", br_int(len(dff)), "processos no recorte", "📋", "icon-blue"),
+            ("Cumprimento iniciado", _count(dff, dff["etapa_saude_ordem"].gt(0)), "ordens em execução na saúde", "⚕", "icon-green"),
+            ("Prazo vencido", _count(dff, dff["indicador_atraso"].eq("Sim")), "cumprimentos pendentes na data de referência", "!", "icon-orange"),
+            ("Uso contínuo", _count(dff, dff["status_andamento"].eq("Tratamento em cumprimento contínuo")), "tratamentos com acompanhamento periódico", "↻", "icon-purple"),
+        ])
+        with st.container(border=True, key="manager_panel_etapas_judiciais_no_recorte"):
+            section_title("Etapas judiciais no recorte")
+            judicial_summary = protected_aggregate(dff, ["etapa_judicial"])
+            judicial_summary["texto"] = judicial_summary["processos"].map(br_int)
+            _plot(barh(judicial_summary, "etapa_judicial", "processos", "texto", height=320, separate_dominant=True), key="tracking:judicial_summary")
+        with st.container(border=True, key="manager_panel_cumprimento_na_rede_de_saude"):
+            section_title("Cumprimento na rede de saúde")
+            st.caption("Processos por etapa registrada na rede de saúde. Os nomes completos aparecem ao passar o mouse sobre cada barra.")
+            health_summary = protected_aggregate(dff, ["etapa_saude"])
+            health_summary["texto"] = health_summary["processos"].map(br_int)
+            _plot(barh(health_summary, "etapa_saude", "processos", "texto", height=380, color="#239B56", separate_dominant=True), key="tracking:health_summary")
+
+    section_title("Consultar um processo")
+    process_rows = dff.sort_values("ultima_movimentacao_data", ascending=False).drop_duplicates("processo_id")
+    labels = {}
+    for row in process_rows.itertuples(index=False):
+        patient = f" · {row.paciente}" if user_role != "usuario" else ""
+        labels[f"{row.processo_id}{patient} · {row.item_demandado}"] = row.processo_id
+    selected_label = st.selectbox("Processo", list(labels), help="Selecione o processo que deseja acompanhar.")
+    process = process_rows[process_rows["processo_id"] == labels[selected_label]].iloc[0]
+
+    st.markdown(f"### {escape(str(process['item_demandado']))}")
+    st.caption(f"Processo {process['processo_id']} · Fluxo de {process['tipo_fluxo_saude']}")
+    if pd.notna(process.get("data_referencia_calculo")):
+        st.caption(f"Data de referência dos prazos: {pd.Timestamp(process['data_referencia_calculo']).strftime('%d/%m/%Y')}")
+    if pd.notna(process.get("geracao_simulacao")):
+        st.caption(f"Simulação gerada para: {pd.Timestamp(process['geracao_simulacao']).strftime('%d/%m/%Y')}")
+    if process["status_andamento"] == "Tratamento em cumprimento contínuo":
+        st.success("O medicamento foi entregue, mas o acompanhamento continua por se tratar de uso contínuo.")
+
+    j1, j2, j3 = st.columns(3)
+    j1.metric("Situação judicial", process["etapa_judicial"])
+    j2.metric("Cumprimento na saúde", process["etapa_saude"])
+    j3.metric("Status geral", process["status_andamento"])
+
+    st.progress(int(process["percentual_judicial"]), text=f"Andamento judicial: {int(process['percentual_judicial'])}%")
+    tracking_bar("Trilha A - andamento judicial", JUDICIAL_TRACK, int(process["etapa_judicial_ordem"]), "#125CC9")
+
+    health_tracks = {
+        "Medicamento": ("Ordem recebida", "Análise do cumprimento", "Estoque verificado", "Aquisição", "Produto recebido", "Disponível", "Paciente comunicado", "Medicamento entregue"),
+        "Cirurgia": ("Ordem recebida", "Regulação", "Hospital definido", "Pré-operatório", "Autorizada", "Agendada", "Paciente convocado", "Realizada", "Pós-operatório"),
+        "Tratamento ou serviço": ("Ordem recebida", "Análise", "Disponibilidade", "Providência administrativa", "Disponibilizado", "Paciente comunicado", "Realizado"),
+    }
+    health_track = health_tracks[process["tipo_fluxo_saude"]]
+    if int(process["etapa_saude_ordem"]) == 0:
+        st.info(f"Cumprimento ainda não iniciado: {process['etapa_saude']}.")
+    st.progress(int(process["percentual_saude"]), text=f"Cumprimento na saúde: {int(process['percentual_saude'])}%")
+    tracking_bar(f"Trilha B - cumprimento de {str(process['tipo_fluxo_saude']).lower()}", health_track, int(process["etapa_saude_ordem"]), "#239B56")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        with st.container(border=True, key="manager_panel_decisao_e_comunicacao"):
+            section_title("Decisão e comunicação")
+            st.write(process["decisao_urgencia"])
+            if pd.notna(process["data_intimacao"]):
+                st.caption(f"Intimação: {pd.to_datetime(process['data_intimacao']).strftime('%d/%m/%Y')}")
+    with c2:
+        with st.container(border=True, key="manager_panel_prazo_para_cumprimento"):
+            section_title("Prazo para cumprimento")
+            if pd.notna(process["data_limite_cumprimento"]):
+                st.markdown(f"**{pd.to_datetime(process['data_limite_cumprimento']).strftime('%d/%m/%Y')}**")
+                st.caption(f"Prazo informado: {int(process['prazo_cumprimento_dias'])} dias")
+            else:
+                st.write("Ainda não definido")
+    with c3:
+        with st.container(border=True, key="manager_panel_proxima_acao"):
+            section_title("Próxima ação")
+            st.write(process["proxima_etapa"])
+            st.caption(f"Responsável: {process['responsavel_etapa']}")
+
+    if user_role == "usuario":
+        st.info(process["mensagem_paciente"])
+
+    pdf_data = build_process_tracking_pdf(
+        mask_personal_data(pd.DataFrame([process])).iloc[0].to_dict(),
+        JUDICIAL_TRACK,
+        health_track,
+    )
+    st.download_button(
+        "Baixar consulta em PDF",
+        data=pdf_data,
+        file_name=f"andamento_{process['processo_id']}.pdf",
+        mime="application/pdf",
+        help="Baixa um relatório com o resumo e as etapas do processo selecionado.",
+        type="primary",
+    )

@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from io import BytesIO
 from typing import Mapping, Sequence
 from xml.sax.saxutils import escape
 
 import pandas as pd
+from petsus.config import APP_TIMEZONE
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -45,7 +46,7 @@ def _paragraph(value: object, style) -> Paragraph:
 
 def _date(value: object) -> str:
     if value is None or pd.isna(value):
-        return "Não informado"
+        return "Não se aplica / não registrado"
     return pd.to_datetime(value).strftime("%d/%m/%Y")
 
 
@@ -120,12 +121,14 @@ def build_process_tracking_pdf(
         author="PetSUS",
     )
     styles = getSampleStyleSheet()
+    styles["BodyText"].fontSize = 10
+    styles["BodyText"].leading = 14
     styles.add(ParagraphStyle(
         "ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold",
         fontSize=19, leading=23, textColor=DARK, alignment=TA_CENTER, spaceAfter=5,
     ))
     styles.add(ParagraphStyle(
-        "ReportSubtitle", parent=styles["Normal"], fontSize=9.5, leading=13,
+        "ReportSubtitle", parent=styles["Normal"], fontSize=10, leading=14,
         textColor=MUTED, alignment=TA_CENTER, spaceAfter=12,
     ))
     styles.add(ParagraphStyle(
@@ -133,7 +136,7 @@ def build_process_tracking_pdf(
         fontSize=12, leading=15, textColor=DARK, spaceBefore=8, spaceAfter=6,
     ))
     styles.add(ParagraphStyle(
-        "Small", parent=styles["BodyText"], fontSize=8.5, leading=12, textColor=MUTED,
+        "Small", parent=styles["BodyText"], fontSize=10, leading=14, textColor=DARK,
     ))
 
     story = [
@@ -142,9 +145,9 @@ def build_process_tracking_pdf(
     ]
 
     process_info = [
-        ["Processo", _text(process.get("processo_id")), "Paciente", _text(process.get("paciente"))],
+        ["Processo", _paragraph(process.get("processo_id"), styles["BodyText"]), "Paciente", _paragraph(process.get("paciente"), styles["BodyText"])],
         ["Demanda", _paragraph(process.get("item_demandado"), styles["BodyText"]), "Tipo", _text(process.get("tipo_fluxo_saude"))],
-        ["Natureza", _text(process.get("natureza")), "Consulta gerada", datetime.now().strftime("%d/%m/%Y %H:%M")],
+        ["Natureza", _paragraph(process.get("natureza"), styles["BodyText"]), "Consulta gerada", _paragraph(datetime.now(ZoneInfo(APP_TIMEZONE)).strftime("%d/%m/%Y %H:%M") + " (Fortaleza)", styles["BodyText"])],
     ]
     info_table = Table(process_info, colWidths=[25 * mm, 62 * mm, 29 * mm, 53 * mm])
     info_table.setStyle(TableStyle([
@@ -162,8 +165,8 @@ def build_process_tracking_pdf(
     story.extend([info_table, Spacer(1, 10)])
 
     summary = [
-        ["Andamento judicial", _text(process.get("etapa_judicial")), f"{int(process.get('percentual_judicial', 0))}%"],
-        ["Cumprimento na saúde", _text(process.get("etapa_saude")), f"{int(process.get('percentual_saude', 0))}%"],
+        ["Andamento judicial", _paragraph(process.get("etapa_judicial"), styles["BodyText"]), f"{int(process.get('percentual_judicial', 0))}%"],
+        ["Cumprimento na saúde", _paragraph(process.get("etapa_saude"), styles["BodyText"]), f"{int(process.get('percentual_saude', 0))}%"],
         ["Status geral", _paragraph(process.get("status_andamento"), styles["BodyText"]), ""],
     ]
     summary_table = Table(summary, colWidths=[44 * mm, 106 * mm, 19 * mm])
@@ -182,12 +185,18 @@ def build_process_tracking_pdf(
     story.extend([summary_table, Spacer(1, 7)])
 
     details = [
-        ["Decisão de urgência", _text(process.get("decisao_urgencia"))],
+        ["Referência dos cálculos", _date(process.get("data_referencia_calculo")) + " (America/Fortaleza)"],
+        ["Geração da simulação", _date(process.get("geracao_simulacao", process.get("ultima_atualizacao_dados")))],
+        ["Ajuizamento", _date(process.get("data_ajuizamento"))],
+        ["Desfecho judicial", _text(process.get("desfecho"))],
+        ["Pedido urgente", _text(process.get("urgente"))],
+        ["Decisão de urgência", _paragraph(process.get("decisao_urgencia"), styles["BodyText"])],
         ["Data da intimação", _date(process.get("data_intimacao"))],
         ["Data limite", _date(process.get("data_limite_cumprimento"))],
         ["Próxima ação judicial", _paragraph(process.get("proxima_acao_judicial"), styles["BodyText"])],
         ["Próxima ação na saúde", _paragraph(process.get("proxima_acao_saude"), styles["BodyText"])],
-        ["Responsável pela etapa", _text(process.get("responsavel_etapa"))],
+        ["Responsável pela etapa", _paragraph(process.get("responsavel_etapa"), styles["BodyText"])],
+        ["Se o prazo vencer", _paragraph("Procure o órgão de saúde responsável e a Defensoria Pública ou seu representante jurídico. Informe o número do processo e a data limite. Não interrompa ou altere tratamento por conta própria.", styles["BodyText"])],
     ]
     details_table = Table(details, colWidths=[49 * mm, 120 * mm])
     details_table.setStyle(TableStyle([
@@ -200,23 +209,28 @@ def build_process_tracking_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.extend([Paragraph("Resumo da consulta", styles["Section"]), details_table])
+    story.extend([
+        Paragraph("Sobre esta consulta", styles["Section"]),
+        Paragraph(
+            "O período no painel filtra o ajuizamento, sem reconstruir a situação histórica. "
+            "Os percentuais indicam posição em etapas ilustrativas, não prazo restante ou chance de êxito. "
+            "Confirme os eventos e prazos com o tribunal ou órgão de saúde.",
+            styles["Small"],
+        ),
+    ])
 
     story.extend([
+        PageBreak(),
         Paragraph("Trilha A - andamento judicial", styles["Section"]),
         _stage_table(judicial_stages, int(process.get("etapa_judicial_ordem", 0)), BLUE, styles),
-        PageBreak(),
         Paragraph(f"Trilha B - cumprimento de {_text(process.get('tipo_fluxo_saude')).lower()}", styles["Section"]),
         _stage_table(health_stages, int(process.get("etapa_saude_ordem", 0)), GREEN, styles),
         Spacer(1, 10),
-        KeepTogether([
-            Paragraph("Observação", styles["Section"]),
-            Paragraph(
-                "Este relatório reflete os dados disponíveis no PetSUS no momento da consulta. "
-                "Na base acadêmica, os eventos e prazos são demonstrativos e não substituem a "
-                "consulta oficial ao processo, ao tribunal ou ao órgão de saúde responsável.",
-                styles["Small"],
-            ),
-        ]),
+        Paragraph("Termos em linguagem simples", styles["Section"]),
+        Paragraph("Liminar: decisão provisória que pode autorizar uma providência antes do julgamento final. "
+                  "Intimação: comunicação formal de uma decisão. Sentença: julgamento do pedido. "
+                  "Cumprimento: entrega do medicamento ou realização do serviço. Uma decisão favorável "
+                  "não comprova que o atendimento já aconteceu.", styles["BodyText"]),
     ])
 
     document.build(story, onFirstPage=_footer, onLaterPages=_footer)

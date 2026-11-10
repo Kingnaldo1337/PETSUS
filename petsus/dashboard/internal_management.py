@@ -7,6 +7,13 @@ import streamlit as st
 from auth import AuthStore
 from petsus.auth.models import ROLE_MANAGER, ROLE_USER
 from petsus.auth.registration import is_valid_email, normalize_email
+from petsus.auth.email import mfa_required, smtp_configured
+from petsus.dashboard.support import local_timestamp
+
+
+def _acting_manager_id() -> int:
+    state = st.session_state.get("auth_user", {})
+    return int(state.get("id", 0)) if isinstance(state, dict) else 0
 
 
 def _account_summary(account: dict[str, object]) -> None:
@@ -23,7 +30,7 @@ def _account_summary(account: dict[str, object]) -> None:
 
 def _manager_create_form(store: AuthStore) -> None:
     st.markdown("### Adicionar gestor")
-    st.caption("Crie contas administrativas individualmente. Todos os campos são obrigatórios.")
+    st.caption("Crie contas administrativas individualmente. A senha inicial deverá ser trocada no primeiro acesso.")
     with st.form("internal_create_manager", clear_on_submit=True):
         name = st.text_input("Nome completo")
         cpf = st.text_input("CPF", placeholder="000.000.000-00")
@@ -42,7 +49,8 @@ def _manager_create_form(store: AuthStore) -> None:
         st.error("A confirmação não corresponde à senha.")
     else:
         try:
-            store.create_user(cpf, password, name, ROLE_MANAGER, email=normalized_email)
+            store.create_user(cpf, password, name, ROLE_MANAGER, email=normalized_email,
+                              must_change_password=True, acting_manager_id=_acting_manager_id())
         except ValueError as exc:
             st.error(str(exc))
         else:
@@ -67,6 +75,7 @@ def _manager_edit_form(store: AuthStore, account: dict[str, object]) -> None:
             int(account["id"]), ROLE_MANAGER,
             email=email,
             new_password=new_password or None,
+            acting_manager_id=_acting_manager_id(),
         )
     except ValueError as exc:
         st.error(str(exc))
@@ -105,6 +114,7 @@ def _patient_edit_form(store: AuthStore, account: dict[str, object]) -> None:
             email=email,
             new_password=new_password or None,
             birth_date=birth_date.isoformat() if change_birth_date and birth_date else None,
+            acting_manager_id=_acting_manager_id(),
         )
     except ValueError as exc:
         st.error(str(exc))
@@ -153,7 +163,7 @@ def _account_lookup(store: AuthStore, acting_manager_id: int) -> None:
     if notice:
         st.success(str(notice))
     st.markdown("### Consultar, editar ou excluir conta")
-    st.caption("A consulta é feita somente por CPF e retorna no máximo uma conta.")
+    st.caption("A consulta detalhada é feita por CPF e retorna no máximo uma conta. A revisão de acessos usa dados reduzidos.")
     with st.form("internal_account_lookup"):
         cpf = st.text_input("CPF da conta", placeholder="000.000.000-00")
         searched = st.form_submit_button("Consultar", type="primary")
@@ -172,6 +182,9 @@ def _account_lookup(store: AuthStore, acting_manager_id: int) -> None:
     if not account:
         return
     _account_summary(account)
+    if not account.get("active"):
+        st.warning("Esta conta está com acesso revogado. Use a revisão de acessos para reativá-la.")
+        return
     if account["role"] == ROLE_MANAGER:
         _manager_edit_form(store, account)
     else:
@@ -181,14 +194,84 @@ def _account_lookup(store: AuthStore, acting_manager_id: int) -> None:
 
 
 def render_internal_management(store: AuthStore) -> None:
-    st.info(
-        "Área restrita a gestores. Para reduzir carga e proteger os dados, não há listagem de usuários: "
-        "cada conta deve ser consultada pelo CPF completo."
-    )
-    create_tab, edit_tab = st.tabs(["Adicionar gestor", "Consultar por CPF"])
+    manager_id = _acting_manager_id()
+    user = store.get_active_user(manager_id) if manager_id else None
+    session = st.session_state.get("auth_user", {})
+    if (user is None or not user.is_manager or user.must_change_password
+            or not isinstance(session, dict) or session.get("session_version") != user.session_version
+            or (mfa_required() and st.session_state.get("auth_mfa_verified") is not True)):
+        st.error("Esta área exige uma sessão válida de gestor. Entre novamente para continuar.")
+        return
+    st.info("Área restrita a gestores. Revise periodicamente as contas e revogue acessos que não sejam mais necessários.")
+    if smtp_configured():
+        st.caption("Segundo fator por e-mail habilitado. Contas precisam de e-mail válido para entrar.")
+    elif mfa_required():
+        st.error("Segundo fator obrigatório sem SMTP configurado. Configure o envio antes de encerrar esta sessão.")
+    else:
+        st.warning("Segundo fator indisponível: configure o SMTP para habilitar códigos de acesso por e-mail. Para exigir o segundo fator mesmo sem SMTP, defina PETSUS_REQUIRE_MFA=true.")
+    create_tab, edit_tab, review_tab, audit_tab = st.tabs(["Adicionar gestor", "Consultar por CPF", "Revisar acessos", "Auditoria"])
     with create_tab:
         _manager_create_form(store)
     with edit_tab:
-        auth_state = st.session_state.get("auth_user", {})
-        acting_manager_id = int(auth_state.get("id", 0)) if isinstance(auth_state, dict) else 0
-        _account_lookup(store, acting_manager_id)
+        _account_lookup(store, manager_id)
+    with review_tab:
+        _access_review(store, manager_id)
+    with audit_tab:
+        _audit_trail(store, manager_id)
+
+
+def _access_review(store: AuthStore, manager_id: int) -> None:
+    st.markdown("### Revisão periódica de acessos")
+    st.caption("Até 500 contas. A listagem mostra somente identificador, CPF mascarado, perfil, situação e datas. Para detalhes, consulte um CPF.")
+    accounts = store.list_accounts(manager_id)
+    if not accounts:
+        st.info("Nenhuma conta encontrada.")
+        return
+    records = [{
+        "Conta": row["id"], "CPF mascarado": row["cpf_display"],
+        "Perfil": "Gestor" if row["role"] == ROLE_MANAGER else "Paciente",
+        "Acesso": "Ativo" if row["active"] else "Revogado",
+        "Troca de senha pendente": "Sim" if row["must_change_password"] else "Não",
+        "Criada em": local_timestamp(row["created_at"]), "Último acesso": local_timestamp(row["last_login"]) if row["last_login"] else "Sem registro",
+    } for row in accounts]
+    st.dataframe(records, hide_index=True, use_container_width=True)
+    selected = st.selectbox(
+        "Conta a revisar", accounts, format_func=lambda row: f"Conta {row['id']} · {row['cpf_display']} · {row['role']}",
+    )
+    active = bool(selected["active"])
+    action = "Revogar acesso" if active else "Reativar acesso"
+    with st.form("review_account_access"):
+        confirmed = st.checkbox(f"Confirmo a ação: {action.lower()} da conta {selected['id']}.")
+        submitted = st.form_submit_button(action)
+    if submitted:
+        if not confirmed:
+            st.error("Confirme a alteração de acesso.")
+        else:
+            try:
+                store.set_account_active(int(selected["id"]), not active, manager_id)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state.pop("internal_management_account", None)
+                st.session_state["internal_management_notice"] = "Acesso atualizado. As sessões anteriores foram invalidadas."
+                st.rerun()
+
+
+def _audit_trail(store: AuthStore, manager_id: int) -> None:
+    st.markdown("### Trilha de auditoria")
+    st.caption("Últimos 200 eventos, sem senhas, códigos, CPF completo ou dados de saúde. Horários de Fortaleza.")
+    events = store.audit_events(manager_id)
+    labels = {
+        "login": "Entrada", "logout": "Saída", "password_check": "Verificação de senha",
+        "mfa_issued": "Código de segundo fator solicitado", "mfa_check": "Verificação de segundo fator",
+        "mfa_delivery_failed": "Falha no envio de segundo fator", "password_changed": "Senha alterada",
+        "account_created": "Conta criada", "account_updated": "Conta atualizada", "account_deleted": "Conta excluída",
+        "account_access_review": "Revisão de acessos consultada", "access_activated": "Acesso ativado", "access_revoked": "Acesso revogado",
+    }
+    outcomes = {"success": "Concluído", "failed": "Falhou", "rate_limited": "Limite de tentativas"}
+    records = [{
+        "Data": local_timestamp(event["created_at"]), "Evento": labels.get(str(event["event"]), event["event"]),
+        "Responsável (conta)": event["actor_id"], "Conta afetada": event["subject_id"],
+        "Resultado": outcomes.get(str(event["outcome"]), event["outcome"]),
+    } for event in events]
+    st.dataframe(records, hide_index=True, use_container_width=True)
