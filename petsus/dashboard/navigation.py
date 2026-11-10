@@ -48,8 +48,8 @@ PAGE_SUBTITLES = {
     "Gestão interna": "Cadastro de gestores, revisão de acessos e trilha de auditoria.",
     "Prevenção": "Causas recorrentes e oportunidades de resolução administrativa.",
     "Ajuda e feedback": "Ajuda, relato de erros, avaliação de uso e informações sobre os dados.",
-    "Meu acompanhamento": "Veja a situação do seu pedido, os próximos passos e quem procurar.",
-    "Meus processos": "Consulte os pedidos vinculados à sua conta.",
+    "Meu acompanhamento": "Veja a situação do seu processo, os próximos passos e quem procurar.",
+    "Meus processos": "Consulte os processos vinculados à sua conta.",
     "Meus documentos": "Baixe o resumo de acompanhamento de cada processo.",
 }
 

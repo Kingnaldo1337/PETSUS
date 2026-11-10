@@ -105,7 +105,7 @@ def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None
     render_contacts()
     support_intent = st.session_state.pop("patient_support_intent", None)
     if not user.is_manager and support_intent == "report":
-        st.info("Conte o que precisa ser conferido em Relatar e acompanhar. O pedido selecionado já está vinculado ao formulário abaixo.")
+        st.info("Conte o que precisa ser conferido em Relatar e acompanhar. O processo selecionado já está vinculado ao formulário abaixo.")
     feedback_tab, glossary_tab, about_tab, survey_tab = st.tabs(["Relatar e acompanhar", "Glossário", "Sobre os dados", "Avaliar uso"])
     with feedback_tab:
         st.subheader("Relatar erro ou sugerir melhoria")
@@ -194,7 +194,7 @@ def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None
             st.write(f"Avaliações de uso: {results['count']}" + (f" · média: {results['average_score']:.1f} / 100" if results["count"] else ""))
     with survey_tab:
         st.subheader("Sua experiência com a plataforma")
-        st.write("Depois de consultar um pedido ou analisar os dados, responda às dez afirmações. 1 = discordo totalmente; 5 = concordo totalmente.")
+        st.write("Depois de consultar um processo ou analisar os dados, responda às dez afirmações. 1 = discordo totalmente; 5 = concordo totalmente.")
         st.caption("Adaptação em português dos itens da System Usability Scale (SUS). Não é uma tradução validada para pesquisa. A avaliação é opcional e não registra sua identidade.")
         with st.form("sus_form"):
             answers = [st.radio(f"{index}. {question}", [1, 2, 3, 4, 5], index=None, horizontal=True, key=f"sus_{index}") for index, question in enumerate(SUS_QUESTIONS, 1)]

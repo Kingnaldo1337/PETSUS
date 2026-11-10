@@ -15,7 +15,7 @@ def render_accessibility_controls(show_sidebar: bool = True) -> None:
         with st.sidebar.expander("Acessibilidade", expanded=False):
             st.checkbox("Texto ampliado", key="a11y_large_text")
             st.checkbox("Alto contraste", key="a11y_contrast")
-            st.caption("Use Tab para navegar e Enter para acionar botões. O resumo do pedido pode ser ouvido na página de acompanhamento.")
+            st.caption("Use Tab para navegar e Enter para acionar botões. O resumo do processo pode ser ouvido na página de acompanhamento.")
     large = st.session_state.get("a11y_large_text", False)
     contrast = st.session_state.get("a11y_contrast", False)
     css = """

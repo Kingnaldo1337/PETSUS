@@ -113,5 +113,5 @@ def render_auth_intro() -> None:
         f'{icon("scales",46)}{icon("medical",38)}</div><div><div class="auth-brand-name">DASHJUS</div>'
         '<div class="auth-brand-caption">Judicialização na Saúde</div></div></div>'
         '<h1 class="auth-title">Bem-vindo ao DASHJUS</h1>'
-        '<p class="auth-sub">Entre para acompanhar seus pedidos ou acessar a área de gestão.</p></div>', unsafe_allow_html=True,
+        '<p class="auth-sub">Entre para acompanhar seus processos ou acessar a área de gestão.</p></div>', unsafe_allow_html=True,
     )

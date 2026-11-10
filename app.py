@@ -298,7 +298,7 @@ with st.sidebar:
     page_label = render_portal_navigation(page_labels)
     pagina = page_map[page_label]
     if not auth_user.is_manager:
-        st.markdown(f'<div class="patient-sidebar-note">{icon("lock",13)} Um espaço seguro para acompanhar os seus pedidos.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="patient-sidebar-note">{icon("lock",13)} Um espaço seguro para acompanhar os seus processos.</div>', unsafe_allow_html=True)
     if auth_user.is_manager and pagina not in ("Gestão interna", "Ajuda e feedback"):
         st.divider()
         st.markdown('<div class="patient-sidebar-label">REFINAR ANÁLISE</div><div class="manager-filter-caption">Ajuste os filtros para explorar os indicadores.</div>', unsafe_allow_html=True)

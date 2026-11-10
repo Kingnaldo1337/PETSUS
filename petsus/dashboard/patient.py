@@ -30,7 +30,7 @@ def date_label(value) -> str:
 
 def patient_guidance(process) -> str:
     if process["indicador_atraso"] == "Sim":
-        return "O prazo registrado venceu e a entrega ou o atendimento continua pendente. Procure a Defensoria ou o advogado que acompanha seu processo e informe o número do pedido e a data do prazo."
+        return "O prazo registrado venceu e a entrega ou o atendimento continua pendente. Procure a Defensoria ou o advogado que acompanha seu processo e informe o número do processo e a data do prazo."
     if int(process["etapa_saude_ordem"]) == 0:
         if process["desfecho"] == "Improcedente":
             return "Há uma decisão desfavorável registrada. Procure seu advogado ou a Defensoria para entender a decisão e os próximos passos."
@@ -58,17 +58,17 @@ def court_status(process) -> tuple[str, str, str]:
     if outcome == "Improcedente":
         return "Decisão desfavorável", "red", "Há uma decisão registrada. Sua equipe jurídica pode explicar o resultado e os próximos passos."
     if outcome in ("Extinto", "Extinto sem julgamento"):
-        return "Processo encerrado", "gray", "O pedido foi encerrado sem julgamento. Consulte seu representante para entender o motivo."
+        return "Processo encerrado", "gray", "O processo foi encerrado sem julgamento do pedido. Consulte seu representante para entender o motivo."
     if outcome in ("Procedente", "Parcialmente procedente", "Acordo"):
         return "Decisão registrada", "green", f"Resultado do pedido: {outcome.lower()}. O atendimento é acompanhado separadamente na saúde."
     if process["liminar"] == "Sim":
         return "Decisão provisória favorável", "teal", "Uma decisão provisória foi concedida. O processo continua em acompanhamento."
-    return "Aguardando decisão", "amber", "Seu pedido foi registrado e aguarda análise. Acompanhe aqui as próximas movimentações."
+    return "Aguardando decisão", "amber", "Seu processo foi registrado e aguarda análise. Acompanhe aqui as próximas movimentações."
 
 
 def health_status(process) -> tuple[str, str, str]:
     if int(process["etapa_saude_ordem"]) == 0:
-        return "Atendimento ainda não iniciado", "gray", "Ainda não há atendimento registrado para este pedido."
+        return "Atendimento ainda não iniciado", "gray", "Ainda não há atendimento registrado para este processo."
     if process["status_andamento"] == "Tratamento em cumprimento contínuo":
         return "Entrega registrada", "green", "O medicamento foi entregue. O acompanhamento continua para as próximas retiradas."
     if process["encerramento_assistencial"] == "Sim":
@@ -109,7 +109,7 @@ def _render_records(rows: pd.DataFrame) -> None:
                 f'<div><strong>NA JUSTIÇA</strong>{escape(str(process["etapa_judicial"]))}</div>'
                 f'<div><strong>NA SAÚDE</strong>{escape(str(process["etapa_saude"]))}</div></div>', unsafe_allow_html=True,
             )
-            st.button("Acompanhar este pedido →", key=f"patient_open_{index}", on_click=open_patient_process, args=(str(process["processo_id"]),))
+            st.button("Acompanhar este processo →", key=f"patient_open_{index}", on_click=open_patient_process, args=(str(process["processo_id"]),))
 
 
 def _render_documents(rows: pd.DataFrame) -> None:
@@ -130,7 +130,7 @@ def _render_help(process_id: str) -> None:
         st.markdown(
             '<div class="patient-panel-heading"><div class="patient-panel-icon">'
             f'{icon("chat",28)}</div><div><h2 class="patient-panel-title">Precisa de ajuda?</h2>'
-            '<p class="patient-panel-sub">Encontre os contatos ou informe um problema com seu pedido.</p></div></div>', unsafe_allow_html=True,
+            '<p class="patient-panel-sub">Encontre os contatos ou informe um problema com seu processo.</p></div></div>', unsafe_allow_html=True,
         )
         contact, report = st.columns(2)
         with contact:
@@ -142,7 +142,7 @@ def _render_help(process_id: str) -> None:
 def render_patient_page(page: str, base: pd.DataFrame) -> None:
     if base.empty:
         st.markdown(
-            f'<div class="patient-empty">{icon("document",38)}<h2>Nenhum pedido para acompanhar</h2>'
+            f'<div class="patient-empty">{icon("document",38)}<h2>Nenhum processo para acompanhar</h2>'
             '<p>Ainda não há processos vinculados à sua conta.<br>Se precisar, a equipe pode ajudar a conferir seu cadastro.</p></div>', unsafe_allow_html=True,
         )
         st.button("Encontrar ajuda", key="patient_empty_help", on_click=open_patient_help)
@@ -155,7 +155,7 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
         _render_documents(rows)
         return
 
-    st.markdown('<div class="patient-order-heading"><span class="patient-order-label">Pedido selecionado</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="patient-order-heading"><span class="patient-order-label">Processo selecionado</span></div>', unsafe_allow_html=True)
     process_ids = rows["processo_id"].astype(str).tolist()
     if st.session_state.get("patient_process") not in process_ids:
         st.session_state.pop("patient_process", None)
@@ -163,12 +163,12 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     repeated_items = rows["item_demandado"].duplicated(keep=False)
     duplicate_ids = set(rows.loc[repeated_items, "processo_id"].astype(str))
     selected = st.selectbox(
-        "Pedido que deseja acompanhar", process_ids,
+        "Processo que deseja acompanhar", process_ids,
         format_func=lambda value: f"{labels[value]} · {value}" if value in duplicate_ids else labels[value], key="patient_process", label_visibility="collapsed",
     )
     process = rows[rows["processo_id"].astype(str) == selected].iloc[0]
     long_item = f'{escape(str(process["item_demandado"]))} · ' if len(str(process["item_demandado"])) > 45 else ""
-    st.markdown(f'<div class="patient-process-caption">{long_item}Processo {escape(str(process["processo_id"]))} · Pedido registrado em {date_label(process["data_ajuizamento"])}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="patient-process-caption">{long_item}Processo {escape(str(process["processo_id"]))} · Ajuizado em {date_label(process["data_ajuizamento"])}</div>', unsafe_allow_html=True)
     st.markdown(status_cards(process), unsafe_allow_html=True)
     guidance = patient_guidance(process)
     overdue = process["indicador_atraso"] == "Sim"
@@ -204,10 +204,10 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
         with action:
             download_summary(process, "patient_pdf", compact=True)
         with note:
-            st.markdown('<div class="patient-discreet-note">Resumo em PDF · Guarde ou compartilhe com quem acompanha seu pedido.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="patient-discreet-note">Resumo em PDF · Guarde ou compartilhe com quem acompanha seu processo.</div>', unsafe_allow_html=True)
     with st.container(border=True):
-        st.subheader("Ouvir o resumo do meu pedido")
-        speech_summary(f"Pedido {process['item_demandado']}. Na Justiça: {process['etapa_judicial']}. Na saúde: {process['etapa_saude']}. Próximo passo: {process['proxima_etapa']}. Responsável: {process['responsavel_etapa']}. Prazo: {date_label(process['data_limite_cumprimento'])}. {guidance}")
+        st.subheader("Ouvir o resumo do meu processo")
+        speech_summary(f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. Na Justiça: {process['etapa_judicial']}. Na saúde: {process['etapa_saude']}. Próximo passo: {process['proxima_etapa']}. Responsável: {process['responsavel_etapa']}. Prazo: {date_label(process['data_limite_cumprimento'])}. {guidance}")
     with st.container(border=True):
         st.subheader("Etapas de acompanhamento")
         st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
