@@ -121,12 +121,17 @@ def render_patient_faq() -> None:
 
 def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None:
     render_contacts()
-    if not user.is_manager:
-        render_patient_faq()
     support_intent = st.session_state.pop("patient_support_intent", None)
     if not user.is_manager and support_intent == "report":
         st.info("Conte o que precisa ser conferido em Relatar e acompanhar. O processo selecionado já está vinculado ao formulário abaixo.")
-    feedback_tab, glossary_tab, about_tab, survey_tab = st.tabs(["Relatar e acompanhar", "Glossário", "Sobre os dados", "Avaliar uso"])
+    tab_labels = ["Relatar e acompanhar", "Glossário", "Sobre os dados", "Avaliar uso"]
+    if not user.is_manager:
+        tab_labels.append("Principais dúvidas")
+    tabs = st.tabs(tab_labels)
+    feedback_tab, glossary_tab, about_tab, survey_tab = tabs[:4]
+    if not user.is_manager:
+        with tabs[4]:
+            render_patient_faq()
     with feedback_tab:
         st.subheader("Relatar erro ou sugerir melhoria")
         st.caption("Evite informar CPF, senha ou detalhes clínicos no texto. Relatos ficam visíveis à equipe gestora e a você.")
