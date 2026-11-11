@@ -103,8 +103,26 @@ def local_timestamp(value) -> str:
     return timestamp.tz_convert(TZ).strftime("%d/%m/%Y às %H:%M (Fortaleza)")
 
 
+def render_patient_faq() -> None:
+    st.subheader("Principais dúvidas")
+    with st.container(border=True):
+        st.markdown("### Como ler as datas e os prazos?")
+        st.write("O prazo informado é o prazo registrado para a equipe responsável cumprir a decisão. Ele não é uma data de consulta ou de entrega confirmada.")
+        st.write("‘Ainda não informado’ significa que não há uma data registrada. Se aparecer ‘Prazo vencido’, procure os contatos no início desta página.")
+        st.write("Os dias mostrados no acompanhamento são corridos: incluem sábados, domingos e feriados.")
+        st.write("A última atualização indica quando a informação mais recente foi registrada no acompanhamento.")
+    with st.container(border=True):
+        st.markdown("### Uma decisão favorável significa que meu atendimento já foi realizado?")
+        st.write("A decisão da Justiça e o atendimento na rede de saúde são etapas diferentes. Em ‘Meu acompanhamento’, veja as informações de ‘Na Justiça’ e ‘Na saúde’ para conferir cada uma.")
+    with st.container(border=True):
+        st.markdown("### Como aviso sobre uma informação incorreta ou um problema?")
+        st.write("Use ‘Relatar e acompanhar’, abaixo. Escolha o processo relacionado, descreva o problema e clique em ‘Registrar relato’. A resposta da equipe aparecerá nessa mesma seção.")
+
+
 def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None:
     render_contacts()
+    if not user.is_manager:
+        render_patient_faq()
     support_intent = st.session_state.pop("patient_support_intent", None)
     if not user.is_manager and support_intent == "report":
         st.info("Conte o que precisa ser conferido em Relatar e acompanhar. O processo selecionado já está vinculado ao formulário abaixo.")

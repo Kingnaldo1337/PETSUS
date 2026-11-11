@@ -236,7 +236,3 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
             st.markdown(timeline_html(title, stages, current, status, health=health,
                                      contrast=bool(st.session_state.get("a11y_contrast", False))), unsafe_allow_html=True)
         st.caption("As etapas são marcos de acompanhamento e não medem a chance de ganhar o processo.")
-    with st.container(border=True):
-        st.subheader("Como ler as datas e os prazos")
-        st.write("O prazo informado é o prazo registrado para a equipe responsável cumprir a decisão. Ele não é uma data de consulta ou de entrega confirmada.")
-        st.write("Se aparecer ‘Ainda não informado’, não há uma data registrada. Se aparecer ‘Prazo vencido’, procure os contatos em ‘Precisa de ajuda?’. Os dias são corridos: incluem sábados, domingos e feriados.")
