@@ -43,7 +43,7 @@ def _render_demands(dff, k):
         phase = protected_aggregate(dff, ["tipo_demanda", "fase_processual"])
         if not phase.empty:
             phase["% do recorte"] = phase["processos"].map(lambda value: f"{br_float(pct(value, len(dff)))}%")
-        _table(phase[["tipo_demanda", "fase_processual", "processos", "pacientes", "% do recorte"]].rename(columns={"pacientes": "Pacientes"}) if not phase.empty else phase, wrap_text=True)
+        _table(phase[["tipo_demanda", "fase_processual", "processos", "pacientes", "% do recorte"]].rename(columns={"pacientes": "Pacientes"}) if not phase.empty else phase)
     _ranking(dff, "especialidade", "Especialidades mais acionadas", separate=True)
     with st.container(border=True, key="manager_panel_causas_da_judicializacao_e_oportunidades_de_gestao"):
         section_title("Causas da judicialização e oportunidades de gestão")
@@ -66,7 +66,7 @@ def _render_demands(dff, k):
                 "Aguardando fluxo regular": "Informar o prazo e avaliar a necessidade de revisão do atendimento.",
             }
             causes["Ação sugerida à gestão"] = causes["causa_judicializacao"].map(actions).fillna("Revisar a classificação e identificar a barreira de acesso.")
-            _table(causes[["causa_judicializacao", "processos", "pacientes", "% dos processos do recorte", "Ação sugerida à gestão"]].sort_values("processos", ascending=False).rename(columns={"pacientes": "Pacientes", "% dos processos do recorte": "% do recorte"}), wrap_text=True)
+            _table(causes[["causa_judicializacao", "processos", "pacientes", "% dos processos do recorte", "Ação sugerida à gestão"]].sort_values("processos", ascending=False).rename(columns={"pacientes": "Pacientes", "% dos processos do recorte": "% do recorte"}))
             st.caption("Motivo registrado para o acesso à Justiça, sujeito à conferência da equipe. As ações são sugestões de investigação administrativa, sem presumir causalidade ou dispensar a análise individual. Percentuais usam todos os processos do recorte; grupos protegidos podem não aparecer.")
 
 
