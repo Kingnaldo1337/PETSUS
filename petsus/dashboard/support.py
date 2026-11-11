@@ -1,6 +1,8 @@
 """Ajuda, transparência de atualização e retorno dos usuários."""
 from __future__ import annotations
 
+from petsus.dashboard.table_layout import compact_column_config
+
 from datetime import datetime, timedelta
 import hashlib
 import os
@@ -186,7 +188,8 @@ def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None
             st.subheader("Uso da plataforma")
             usage = store.usage_summary(user)
             if usage:
-                st.dataframe(pd.DataFrame(usage).rename(columns={"date": "Data", "role": "Perfil", "page": "Página", "views": "Visitas"}), hide_index=True, use_container_width=True)
+                frame = pd.DataFrame(usage).rename(columns={"date": "Data", "role": "Perfil", "page": "Página", "views": "Visitas"})
+                st.dataframe(frame, hide_index=True, width="content", column_config=compact_column_config(frame))
             else:
                 st.info("Ainda não há acessos registrados.")
             st.caption("Contagem de visitas por sessão, perfil e página, sem nome, CPF ou identificação do paciente.")

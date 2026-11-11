@@ -13,6 +13,7 @@ from ..theme import apply_chart_appearance
 from ..ui import br_float, br_int, br_money, insight_card, metric_card, pct, section_title, to_excel_bytes
 from petsus.reports.process_tracking_pdf import build_process_tracking_pdf
 from petsus.data.prevention import PREVENTION_ACTIONS
+from petsus.dashboard.table_layout import compact_column_config, compact_column_width
 
 
 MIN_PATIENTS = 5
@@ -134,19 +135,45 @@ def _plot(fig, *, key: str) -> None:
     st.plotly_chart(fig, key=key, use_container_width=True, theme=None, config={"displayModeBar": False, "responsive": True, "scrollZoom": False, "locale": "pt-BR"})
 
 
-def _table(df: pd.DataFrame, height: int = 350) -> None:
+def _table(df: pd.DataFrame, height: int = 350, *, wrap_text: bool = False) -> None:
     view = mask_personal_data(df).rename(columns=LABELS)
     if view.empty:
         st.info("Nenhuma célula publicável neste recorte. Grupos com menos de 5 pacientes distintos são protegidos.")
         return
     view = view.rename(columns={column: str(column).replace("_", " ").capitalize() for column in view if "_" in str(column)})
-    config = {column: st.column_config.Column(column, width="large") for column in view}
+    if wrap_text:
+        # HTML keeps long descriptions readable without truncating cell contents.
+        numeric_columns = [index + 1 for index, column in enumerate(view)
+                           if pd.api.types.is_numeric_dtype(view[column]) or str(column).startswith("%")]
+        compact_rules = "".join(
+            f".demands-readable-table th:nth-child({index}),"
+            f".demands-readable-table td:nth-child({index})"
+            "{width:105px;text-align:right;white-space:nowrap;}"
+            for index in numeric_columns
+        )
+        st.markdown(
+            "<style>"
+            ".demands-table-scroll{width:100%;overflow-x:auto;margin:.5rem 0 1rem;}"
+            ".demands-readable-table{width:100%;border-collapse:collapse;table-layout:fixed;color:inherit;font-size:.95rem;}"
+            ".demands-readable-table th,.demands-readable-table td{padding:14px 12px;"
+            "text-align:left;vertical-align:top;white-space:normal;overflow-wrap:anywhere;"
+            "border-bottom:1px solid #94a3b844;line-height:1.5;}"
+            ".demands-readable-table th{font-weight:700;background:#94a3b812;}"
+            ".demands-readable-table tbody tr:nth-child(even){background:#94a3b808;}"
+            "@media(max-width:700px){.demands-readable-table{min-width:650px;}}"
+            + compact_rules + "</style>"
+            '<div class="demands-table-scroll" role="region" aria-label="Tabela de demandas" tabindex="0">'
+            + view.to_html(index=False, escape=True, border=0, classes="demands-readable-table")
+            + "</div>", unsafe_allow_html=True,
+        )
+        return
+    config = compact_column_config(view)
     for column in view:
         if column.endswith("(R$)") or "PMVG" in column:
-            config[column] = st.column_config.NumberColumn(column, format="R$ %.2f", width="large")
+            config[column] = st.column_config.NumberColumn(column, format="R$ %.2f", width=compact_column_width(view[column], column, money=True), help=column)
         elif pd.api.types.is_numeric_dtype(view[column]):
-            config[column] = st.column_config.NumberColumn(column, format="%.1f" if "dias" in column else "%d", width="medium")
-    st.dataframe(view, hide_index=True, use_container_width=True, height=height, row_height=40, column_config=config)
+            config[column] = st.column_config.NumberColumn(column, format="%.1f" if "dias" in column else "%d", width=compact_column_width(view[column], column), help=column)
+    st.dataframe(view, hide_index=True, width="content", height=height, row_height=40, column_config=config)
 
 
 def _distribution(df, column, title, height=340, patients=False):

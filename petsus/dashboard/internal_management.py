@@ -9,6 +9,8 @@ from petsus.auth.models import ROLE_MANAGER, ROLE_USER
 from petsus.auth.registration import is_valid_email, normalize_email
 from petsus.auth.email import mfa_required, smtp_configured
 from petsus.dashboard.support import local_timestamp
+from petsus.dashboard.table_layout import compact_column_config
+import pandas as pd
 
 
 def _acting_manager_id() -> int:
@@ -234,7 +236,8 @@ def _access_review(store: AuthStore, manager_id: int) -> None:
         "Troca de senha pendente": "Sim" if row["must_change_password"] else "Não",
         "Criada em": local_timestamp(row["created_at"]), "Último acesso": local_timestamp(row["last_login"]) if row["last_login"] else "Sem registro",
     } for row in accounts]
-    st.dataframe(records, hide_index=True, use_container_width=True)
+    frame = pd.DataFrame(records)
+    st.dataframe(frame, hide_index=True, width="content", column_config=compact_column_config(frame))
     selected = st.selectbox(
         "Conta a revisar", accounts, format_func=lambda row: f"Conta {row['id']} · {row['cpf_display']} · {row['role']}",
     )
@@ -274,4 +277,5 @@ def _audit_trail(store: AuthStore, manager_id: int) -> None:
         "Responsável (conta)": event["actor_id"], "Conta afetada": event["subject_id"],
         "Resultado": outcomes.get(str(event["outcome"]), event["outcome"]),
     } for event in events]
-    st.dataframe(records, hide_index=True, use_container_width=True)
+    frame = pd.DataFrame(records)
+    st.dataframe(frame, hide_index=True, width="content", column_config=compact_column_config(frame))

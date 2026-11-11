@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from petsus.dashboard.table_layout import compact_column_config
+
 from .shared import (
     PREVENTION_ACTIONS,
     _cards,
@@ -31,7 +33,7 @@ def _render_prevention(dff):
     with st.expander("Como o indicador é calculado e quais motivos são considerados"):
         st.markdown("**Percentual = processos classificados como potencialmente evitáveis ÷ total de processos dos filtros atuais × 100.** Cada processo entra uma vez na contagem. Registros sem classificação permanecem no total, mas não são contados como potencialmente evitáveis; consulte a cobertura para avaliar a completude do cadastro. ‘Não’ significa ausência de sinalização neste critério, sem afirmar que uma solução administrativa seria impossível.")
         criteria = pd.DataFrame(PREVENTION_ACTIONS.items(), columns=["Motivo para triagem", "Encaminhamento a avaliar"])
-        st.dataframe(criteria, hide_index=True, use_container_width=True, column_config={column: st.column_config.TextColumn(column, width="large") for column in criteria})
+        st.dataframe(criteria, hide_index=True, width="content", column_config=compact_column_config(criteria))
     if not mask.any():
         st.info("Nenhuma demanda está sinalizada como potencialmente evitável nos filtros atuais. Confira a classificação antes de concluir que não há oportunidades de prevenção.")
         return
