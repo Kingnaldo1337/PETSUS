@@ -18,6 +18,7 @@ from petsus.data.metrics import calculate_kpis
 from petsus.dashboard.app_services import load_data, normalize_text
 from petsus.governance import GovernanceStore
 from petsus.dashboard.accessibility import render_accessibility_controls
+from petsus.dashboard.vlibras import render_vlibras
 from petsus.dashboard.patient import render_patient_page
 from petsus.dashboard.patient_ui import icon, render_portal_header, render_portal_navigation, render_portal_sidebar, render_portal_styles
 from petsus.dashboard.support import data_metadata, render_support_page
@@ -30,6 +31,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+render_vlibras()
 
 # -----------------------------------------------------------------------------
 # Estilo visual
