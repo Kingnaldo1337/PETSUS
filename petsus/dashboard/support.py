@@ -104,19 +104,22 @@ def local_timestamp(value) -> str:
 
 
 def render_patient_faq() -> None:
-    st.subheader("Principais dúvidas")
-    with st.container(border=True):
-        st.markdown("### Como ler as datas e os prazos?")
-        st.write("O prazo informado é o prazo registrado para a equipe responsável cumprir a decisão. Ele não é uma data de consulta ou de entrega confirmada.")
-        st.write("‘Ainda não informado’ significa que não há uma data registrada. Se aparecer ‘Prazo vencido’, procure os contatos no início desta página.")
-        st.write("Os dias mostrados no acompanhamento são corridos: incluem sábados, domingos e feriados.")
-        st.write("A última atualização indica quando a informação mais recente foi registrada no acompanhamento.")
-    with st.container(border=True):
-        st.markdown("### Uma decisão favorável significa que meu atendimento já foi realizado?")
-        st.write("A decisão da Justiça e o atendimento na rede de saúde são etapas diferentes. Em ‘Meu acompanhamento’, veja as informações de ‘Na Justiça’ e ‘Na saúde’ para conferir cada uma.")
-    with st.container(border=True):
-        st.markdown("### Como aviso sobre uma informação incorreta ou um problema?")
-        st.write("Use ‘Relatar e acompanhar’, abaixo. Escolha o processo relacionado, descreva o problema e clique em ‘Registrar relato’. A resposta da equipe aparecerá nessa mesma seção.")
+    st.markdown(
+        '<style>.st-key-patient_faq [data-testid="stMarkdownContainer"] p'
+        '{font-size:.95rem!important;line-height:1.6;}'
+        '.st-key-patient_faq summary p{font-weight:600;}</style>',
+        unsafe_allow_html=True,
+    )
+    with st.container(key="patient_faq"):
+        with st.expander("Como ler as datas e os prazos?", expanded=False):
+            st.write("O prazo informado é o prazo registrado para a equipe responsável cumprir a decisão. Ele não é uma data de consulta ou de entrega confirmada.")
+            st.write("‘Ainda não informado’ significa que não há uma data registrada. Se aparecer ‘Prazo vencido’, procure os contatos no início desta página.")
+            st.write("Os dias mostrados no acompanhamento são corridos: incluem sábados, domingos e feriados.")
+            st.write("A última atualização indica quando a informação mais recente foi registrada no acompanhamento.")
+        with st.expander("Uma decisão favorável significa que meu atendimento já foi realizado?", expanded=False):
+            st.write("A decisão da Justiça e o atendimento na rede de saúde são etapas diferentes. Em ‘Meu acompanhamento’, veja as informações de ‘Na Justiça’ e ‘Na saúde’ para conferir cada uma.")
+        with st.expander("Como aviso sobre uma informação incorreta ou um problema?", expanded=False):
+            st.write("Abra a aba ‘Relatar e acompanhar’. Escolha o processo relacionado, descreva o problema e clique em ‘Registrar relato’. A resposta da equipe aparecerá nessa mesma aba.")
 
 
 def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None:
