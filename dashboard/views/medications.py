@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from .shared import (
     _cards,
-    _cost_definitions,
     _distribution,
     _medication_subset,
     _ranking,
@@ -29,7 +28,7 @@ def _render_medications(dff):
         ("Incorporados à RENAME", _rate(med, med["rename_incorporado"].eq("Sim")), "demandas incorporadas ÷ demandas de medicamentos", "✓", "icon-green"),
         ("Valor anual estimado", br_money(med["valor_anual_tratamento"].sum()), "projeção de 12 meses; não gasto executado", "📈", "icon-green"),
     ])
-    _cost_definitions()
+    st.caption("Os três valores medem conceitos diferentes e não devem ser somados. Nenhum comprova gasto executado. O preço é estimado, não é cotação oficial PMVG. Uma cotação CMED exige apresentação e quantidade de unidades.")
     a, b = st.columns(2)
     with a:
         _distribution(med, "rename_incorporado", "Incorporação à lista RENAME")
