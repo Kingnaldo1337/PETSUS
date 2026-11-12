@@ -127,7 +127,7 @@ def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None
     support_intent = st.session_state.pop("patient_support_intent", None)
     if not user.is_manager and support_intent == "report":
         st.info("Conte o que precisa ser conferido em Relatar e acompanhar. O processo selecionado já está vinculado ao formulário abaixo.")
-    tab_labels = ["Relatar e acompanhar", "Glossário", "Sobre os dados", "Avaliar uso"]
+    tab_labels = ["Relatar e acompanhar", "Glossário" if user.is_manager else "Significado das palavras", "Sobre os dados", "Avaliar uso"]
     if not user.is_manager:
         tab_labels.append("Principais dúvidas")
     tabs = st.tabs(tab_labels)
