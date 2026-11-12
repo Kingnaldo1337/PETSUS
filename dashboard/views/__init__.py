@@ -56,7 +56,6 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
     if dff["paciente_id"].nunique() < MIN_PATIENTS:
         st.warning("Recorte protegido: são necessários pelo menos 5 pacientes distintos para exibir indicadores, gráficos, tabelas ou exportações. Amplie os filtros.")
         return
-    st.caption("Privacidade: células com menos de 5 pacientes distintos são suprimidas; uma segunda célula pode ser protegida para impedir reconstrução por subtração. As exportações seguem a mesma regra.")
     if pagina == "Visão Geral":
         _render_overview(dff, base, k, participacao, part_custo)
     elif pagina == "Demandas":
