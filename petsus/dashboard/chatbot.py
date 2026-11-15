@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import time
 
 import streamlit as st
+from petsus.dashboard.chat_ai import ChatServiceError, generate_answer
+from petsus.dashboard.support import setting
 
 
 def _normalize(text: str) -> str:
@@ -46,42 +49,87 @@ def render_chatbot(user) -> None:
     if st.session_state.get("support_chat_owner") != owner:
         st.session_state["support_chat_owner"] = owner
         st.session_state["support_chat_history"] = []
+        st.session_state["support_chat_last_send"] = 0.0
 
     def send(question: str | None = None) -> None:
         question = (question or st.session_state.get("support_chat_question", "")).strip()[:500]
         if question:
+            now = time.monotonic()
+            if now - st.session_state.get("support_chat_last_send", 0.0) < 5:
+                st.session_state["support_chat_notice"] = "Aguarde alguns segundos antes de enviar outra pergunta."
+                return
+            st.session_state["support_chat_last_send"] = now
             history = st.session_state["support_chat_history"]
+            if setting("GEMINI_API_KEY"):
+                try:
+                    with st.spinner("Preparando resposta..."):
+                        answer = generate_answer(question, history, is_manager=user.is_manager)
+                except ChatServiceError as error:
+                    answer = str(error)
+            else:
+                answer = "A IA ainda não está configurada. Orientação automática: " + answer_question(question, is_manager=user.is_manager)
             history.extend([
                 {"role": "user", "text": question},
-                {"role": "assistant", "text": answer_question(question, is_manager=user.is_manager)},
+                {"role": "assistant", "text": answer},
             ])
             st.session_state["support_chat_history"] = history[-20:]
 
     st.markdown("""<style>
     .st-key-support_chat_launcher{position:fixed!important;bottom:1.2rem;right:1.2rem;
         z-index:99990;width:auto!important;max-width:calc(100vw - 2rem)!important;}
-    .st-key-support_chat_launcher button{box-shadow:0 6px 24px #102F5626;border-radius:24px;min-height:48px;}
-    [data-testid="stPopoverBody"]:has(.st-key-support_chat_body){width:390px!important;
-        max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 100px);overflow-y:auto;}
-    .st-key-support_chat_body p{line-height:1.55;}
+    .st-key-support_chat_launcher [data-testid="stPopoverButton"]{box-shadow:0 8px 28px #102F5633;
+        border-radius:28px;min-height:50px;background:#087F8C;color:white;border:1px solid #087F8C;padding:.65rem 1.1rem;}
+    [data-testid="stPopoverBody"]:has(.st-key-support_chat_body){width:410px!important;
+        max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 100px);overflow-y:auto;
+        border:1px solid #DCE7EF;border-radius:22px;box-shadow:0 20px 65px #102F5626;padding:1.1rem;}
+    .st-key-support_chat_body p{line-height:1.6;font-size:.95rem;}
+    .support-chat-heading{display:flex;align-items:center;gap:12px;padding:0 0 15px;border-bottom:1px solid #94A3B833;}
+    .support-chat-symbol{display:grid;place-items:center;width:43px;height:43px;border-radius:14px;
+        background:linear-gradient(135deg,#102F56,#087F8C);color:#fff;font-size:25px;}
+    .support-chat-title{font-size:1rem;font-weight:750;margin:0;}
+    .support-chat-subtitle{font-size:.8rem;opacity:.7;margin-top:2px;}
+    .support-chat-welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;
+        min-height:235px;text-align:center;padding:1.25rem .8rem;animation:chat-welcome-in .3s ease-out;}
+    .support-chat-welcome-symbol{display:grid;place-items:center;width:64px;height:64px;border-radius:22px;
+        background:#087F8C12;color:#087F8C;font-size:32px;margin-bottom:16px;}
+    .support-chat-welcome h3{font-size:1.2rem;margin:0 0 8px;padding:0;}
+    .support-chat-welcome p{max-width:270px;margin:0;opacity:.75;}
+    .st-key-support_chat_body [data-testid="stChatMessage"]{border-radius:16px;border:1px solid #94A3B826;padding:12px;}
+    .st-key-support_chat_body [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]){background:#087F8C0D;}
+    .st-key-support_chat_body [data-testid="stForm"]{padding:12px!important;border:1px solid #94A3B840;border-radius:16px;}
+    .st-key-support_chat_body [data-testid="stFormSubmitButton"] button{border-radius:10px;}
+    .st-key-support_chat_body [data-testid="stCaptionContainer"] p{font-size:.75rem;line-height:1.5;}
+    @keyframes chat-welcome-in{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+    @media(prefers-reduced-motion:reduce){.support-chat-welcome{animation:none;}}
+    @media(max-height:650px){.st-key-support_chat_messages{height:180px!important;}.support-chat-welcome{min-height:145px;}}
     .stApp [data-testid="stMain"] .block-container{padding-bottom:5.5rem!important;}
     </style>""", unsafe_allow_html=True)
     with st.container(key="support_chat_launcher"):
         with st.popover("Tirar dúvidas", icon=":material/chat_bubble_outline:"):
             with st.container(key="support_chat_body"):
-                st.markdown("**Assistente DASHJUS**")
-                st.caption("Respostas automáticas sobre o uso do sistema. Não envie CPF, senhas ou informações de saúde.")
-                with st.container(height=260, border=False):
+                st.markdown(
+                    '<div class="support-chat-heading"><span class="support-chat-symbol" aria-hidden="true">✦</span>'
+                    '<div><div class="support-chat-title">Assistente DASHJUS</div>'
+                    '<div class="support-chat-subtitle">Uma ajuda para usar o portal</div></div></div>',
+                    unsafe_allow_html=True,
+                )
+                if notice := st.session_state.pop("support_chat_notice", None):
+                    st.info(notice)
+                with st.container(height=280, border=False, key="support_chat_messages"):
                     if not st.session_state["support_chat_history"]:
-                        st.write("Olá! Em que posso ajudar?")
-                        for question in ("Como acompanhar um processo?", "Como entender os prazos?", "Como encontrar os contatos?"):
-                            st.button(question, key=f"support_chat_suggestion_{question}", on_click=send, args=(question,))
+                        st.markdown(
+                            '<div class="support-chat-welcome"><span class="support-chat-welcome-symbol" aria-hidden="true">✦</span>'
+                            '<h3>Olá! Como posso ajudar?</h3>'
+                            '<p>Escreva sua dúvida abaixo para começar nossa conversa.</p></div>',
+                            unsafe_allow_html=True,
+                        )
                     for message in st.session_state["support_chat_history"]:
                         with st.chat_message(message["role"]):
                             st.text(message["text"])
                 with st.form("support_chat_form", clear_on_submit=True):
                     st.text_input("Sua dúvida", key="support_chat_question", max_chars=500,
-                                  placeholder="Escreva sua pergunta...")
-                    st.form_submit_button("Enviar", on_click=send, use_container_width=True)
+                                  placeholder="Digite sua dúvida aqui...", label_visibility="collapsed")
+                    st.form_submit_button("Enviar mensagem", on_click=send, use_container_width=True, type="primary")
+                st.caption("Suas mensagens são enviadas à IA do Google. Não informe CPF, senhas ou dados de saúde. A IA pode errar.")
                 st.button("Limpar conversa", key="support_chat_clear",
                           on_click=lambda: st.session_state.update(support_chat_history=[]))
