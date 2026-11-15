@@ -210,17 +210,6 @@ def render_support_page(user, store, base: pd.DataFrame, metadata: dict) -> None
         st.markdown("Referências para consulta: [DataJud/CNJ](https://www.cnj.jus.br/sistemas/datajud/api-publica/), [RENAME/Ministério da Saúde](https://www.gov.br/saude/pt-br/composicao/sectics/rename) e [CMED/Anvisa](https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed). Cumprimento assistencial precisa de informação validada da rede de saúde.")
         st.write("Na análise gerencial, CPFs são mascarados e grupos com menos de cinco pacientes distintos são suprimidos. A consulta operacional de um processo exige perfil autorizado. Exportações seguem a proteção da tabela exibida.")
         st.write(f"**Histórico — {APP_VERSION} · {RELEASE_DATE}:** portal próprio do paciente, definições de métricas, gráficos comparáveis, privacidade analítica, revisão de contas, auditoria, feedback e acessibilidade.")
-        if user.is_manager:
-            st.subheader("Uso da plataforma")
-            usage = store.usage_summary(user)
-            if usage:
-                frame = pd.DataFrame(usage).rename(columns={"date": "Data", "role": "Perfil", "page": "Página", "views": "Visitas"})
-                st.dataframe(frame, hide_index=True, width="content", column_config=compact_column_config(frame))
-            else:
-                st.info("Ainda não há acessos registrados.")
-            st.caption("Contagem de visitas por sessão, perfil e página, sem nome, CPF ou identificação do paciente.")
-            results = store.sus_summary(user)
-            st.write(f"Avaliações de uso: {results['count']}" + (f" · média: {results['average_score']:.1f} / 100" if results["count"] else ""))
     with survey_tab:
         st.subheader("Sua experiência com a plataforma")
         st.write("Depois de consultar um processo ou analisar os dados, responda às dez afirmações. 1 = discordo totalmente; 5 = concordo totalmente.")
