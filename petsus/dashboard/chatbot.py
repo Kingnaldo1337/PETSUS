@@ -44,12 +44,14 @@ def answer_question(question: str, *, is_manager: bool = False) -> str:
     return "Ainda não tenho uma resposta para essa dúvida. Posso explicar acompanhamento, prazos, documentos, acesso e contatos. Para uma dúvida sobre seu caso, procure os contatos da página de ajuda ou registre um relato."
 
 
+@st.fragment
 def render_chatbot(user) -> None:
     owner = (user.id, user.role, user.session_version)
     if st.session_state.get("support_chat_owner") != owner:
         st.session_state["support_chat_owner"] = owner
         st.session_state["support_chat_history"] = []
         st.session_state["support_chat_last_send"] = 0.0
+        st.session_state.pop("support_chat_pending", None)
 
     def send(question: str | None = None) -> None:
         question = (question or st.session_state.get("support_chat_question", "")).strip()[:500]
@@ -59,20 +61,7 @@ def render_chatbot(user) -> None:
                 st.session_state["support_chat_notice"] = "Aguarde alguns segundos antes de enviar outra pergunta."
                 return
             st.session_state["support_chat_last_send"] = now
-            history = st.session_state["support_chat_history"]
-            if setting("GEMINI_API_KEY"):
-                try:
-                    with st.spinner("Preparando resposta..."):
-                        answer = generate_answer(question, history, is_manager=user.is_manager)
-                except ChatServiceError as error:
-                    answer = str(error)
-            else:
-                answer = "A IA ainda não está configurada. Orientação automática: " + answer_question(question, is_manager=user.is_manager)
-            history.extend([
-                {"role": "user", "text": question},
-                {"role": "assistant", "text": answer},
-            ])
-            st.session_state["support_chat_history"] = history[-20:]
+            st.session_state["support_chat_pending"] = question
 
     st.markdown("""<style>
     .st-key-support_chat_launcher{position:fixed!important;bottom:1.2rem;right:1.2rem;
@@ -116,7 +105,7 @@ def render_chatbot(user) -> None:
                 if notice := st.session_state.pop("support_chat_notice", None):
                     st.info(notice)
                 with st.container(height=280, border=False, key="support_chat_messages"):
-                    if not st.session_state["support_chat_history"]:
+                    if not st.session_state["support_chat_history"] and not st.session_state.get("support_chat_pending"):
                         st.markdown(
                             '<div class="support-chat-welcome"><span class="support-chat-welcome-symbol" aria-hidden="true">✦</span>'
                             '<h3>Olá! Como posso ajudar?</h3>'
@@ -126,6 +115,25 @@ def render_chatbot(user) -> None:
                     for message in st.session_state["support_chat_history"]:
                         with st.chat_message(message["role"]):
                             st.text(message["text"])
+                    if question := st.session_state.pop("support_chat_pending", None):
+                        with st.chat_message("user"):
+                            st.text(question)
+                        with st.chat_message("assistant"):
+                            history = st.session_state["support_chat_history"]
+                            if setting("GEMINI_API_KEY"):
+                                try:
+                                    with st.spinner("Preparando resposta..."):
+                                        answer = generate_answer(question, history, is_manager=user.is_manager)
+                                except ChatServiceError as error:
+                                    answer = str(error)
+                            else:
+                                answer = "A IA ainda não está configurada. Orientação automática: " + answer_question(question, is_manager=user.is_manager)
+                            st.text(answer)
+                            history.extend([
+                                {"role": "user", "text": question},
+                                {"role": "assistant", "text": answer},
+                            ])
+                            st.session_state["support_chat_history"] = history[-20:]
                 with st.form("support_chat_form", clear_on_submit=True):
                     st.text_input("Sua dúvida", key="support_chat_question", max_chars=500,
                                   placeholder="Digite sua dúvida aqui...", label_visibility="collapsed")
