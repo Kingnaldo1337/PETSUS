@@ -148,6 +148,15 @@ def render_portal_styles(is_manager: bool = False) -> None:
     .patient-next-card.overdue {border-color:#E6C994;}
     .st-key-patient_bottom [data-testid="stHorizontalBlock"] {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;}
     .st-key-patient_bottom [data-testid="stColumn"] {flex:unset!important;width:auto!important;min-width:0!important;}
+    .st-key-patient_bottom [data-testid="stColumn"]:has(.st-key-patient_movement),
+    .st-key-patient_bottom [data-testid="stColumn"]:has(.st-key-patient_help) {display:flex;align-items:stretch;}
+    .st-key-patient_bottom [data-testid="stColumn"] > [data-testid="stVerticalBlock"]:has(.st-key-patient_movement),
+    .st-key-patient_bottom [data-testid="stColumn"] > [data-testid="stVerticalBlock"]:has(.st-key-patient_help) {flex:1;}
+    .st-key-patient_bottom [data-testid="stElementContainer"]:has(> .st-key-patient_movement),
+    .st-key-patient_bottom [data-testid="stElementContainer"]:has(> .st-key-patient_help),
+    .st-key-patient_bottom [data-testid="stLayoutWrapper"]:has(.st-key-patient_movement),
+    .st-key-patient_bottom [data-testid="stLayoutWrapper"]:has(.st-key-patient_help) {display:flex;flex:1;}
+    .st-key-patient_movement,.st-key-patient_help {flex:1;box-sizing:border-box;}
     .st-key-patient_movement,.st-key-patient_help,[class*="st-key-patient_record_"],[class*="st-key-patient_document_"] {background:#fff;border:1px solid var(--patient-border);border-radius:var(--portal-radius);padding:1.2rem 1.3rem;box-shadow:var(--portal-shadow);height:100%;}
     .patient-panel-heading {display:flex;gap:.7rem;align-items:flex-start;}
     .patient-panel-icon {color:#3B84B3;flex-shrink:0;}
