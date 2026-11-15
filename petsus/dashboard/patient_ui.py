@@ -353,6 +353,10 @@ def _manager_styles() -> str:
     .stApp:has(.manager-portal-marker) .metric-sub {font-size:.74rem;line-height:1.55;color:#5D7088;}
     .stApp:has(.manager-portal-marker) .card-help {border-color:#9AB6CA;color:#487491!important;min-width:18px;width:18px;height:18px;font-size:.65rem;background:transparent;}
     .stApp:has(.manager-portal-marker) [class*="st-key-manager_panel_"] {background:#fff;border:1px solid var(--patient-border);border-radius:var(--portal-radius);padding:1.3rem 1.35rem;box-shadow:var(--portal-shadow);}
+    .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-manager_panel_"]) {align-items:stretch;}
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"]:has([class*="st-key-manager_panel_"]),
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] :is([data-testid="stVerticalBlock"],[data-testid="stLayoutWrapper"],[data-testid="stElementContainer"]):has([class*="st-key-manager_panel_"]) {display:flex;flex-direction:column;flex:1;align-self:stretch;}
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] [class*="st-key-manager_panel_"] {flex:1;box-sizing:border-box;width:100%;}
     .stApp:has(.manager-portal-marker) .section-title {display:flex;align-items:center;gap:.65rem;font-size:.95rem!important;line-height:1.45!important;font-weight:750;letter-spacing:-.02em;color:#163653;margin:0 0 1rem!important;padding:0!important;}
     .stApp:has(.manager-portal-marker) .section-symbol {display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;border-radius:10px;background:#EDF6F8;color:#087F8C;}
     .stApp:has(.manager-portal-marker) [data-testid="stPlotlyChart"] {border-radius:12px;}
