@@ -51,13 +51,14 @@ def _render_responsibility_detail(dff):
 def _render_competency(dff):
     st.info("Responsabilidade administrativa pelo fornecimento e competência judicial são dimensões diferentes.")
     if "ente_responsavel" in dff:
+        shared = dff["ente_responsavel"].isin(["Estado", "União", "Compartilhada"])
         _cards([
             (ente, _rate(dff, dff["ente_responsavel"].eq(ente)), "percentual de todos os processos filtrados; responsabilidade indicada", "🏛", "icon-blue")
             for ente in ["Município", "Estado", "União", "Compartilhada"]
+        ] + [
+            ("Participação de outros entes", _rate(dff, shared), "Estado, União ou responsabilidade compartilhada ÷ processos filtrados; indica casos para revisão da atribuição exclusiva ao Município", "🏛", "icon-blue")
         ])
         _distribution(dff, "ente_responsavel", "Ente responsável pela demanda", height=290)
-        shared = dff["ente_responsavel"].isin(["Estado", "União", "Compartilhada"])
-        _cards([("Participação de outros entes", _rate(dff, shared), "Estado, União ou responsabilidade compartilhada ÷ processos filtrados; indica casos para revisão da atribuição exclusiva ao Município", "🏛", "icon-blue")])
         _render_responsibility_detail(dff)
     med = _medication_subset(dff)
     if med is None:
