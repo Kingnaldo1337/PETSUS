@@ -35,7 +35,7 @@ def generate_answer(question: str, history: list[dict], *, is_manager: bool) -> 
         if is_manager else
         "Perfil paciente: Meu acompanhamento, Meus processos e Ajuda e contato. "
         "Em Meu acompanhamento, escolha um processo e veja Na Justiça, Na saúde, o próximo passo e as etapas. "
-        "Em Meus processos, cada cartão permite acompanhar o processo e baixar seu resumo PDF; documentos oficiais são obtidos com o tribunal ou representante. "
+        "Em Meus processos, cada cartão permite acompanhar o processo, baixar seu resumo PDF e ouvir o resumo. Esses botões ficam em Meus processos. Documentos oficiais são obtidos com o tribunal ou representante. "
         "Ajuda e contato contém contatos, Relatar e acompanhar, Significado das palavras, Sobre os dados, "
         "Avaliar uso e Principais dúvidas. Relatos e respostas ficam em Relatar e acompanhar."
     )

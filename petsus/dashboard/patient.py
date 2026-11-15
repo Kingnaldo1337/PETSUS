@@ -127,6 +127,12 @@ def _render_records(rows: pd.DataFrame) -> None:
             )
             st.button("Acompanhar este processo →", key=f"patient_open_{index}", on_click=open_patient_process, args=(str(process["processo_id"]),))
             download_summary(process, f"record_pdf_{process['processo_id']}", compact=True)
+            st.markdown("**Ouvir o resumo deste processo**")
+            speech_summary(
+                f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. "
+                f"Na Justiça: {court_status(process)[2]} Na saúde: {health_status(process)[2]} "
+                f"O que fazer agora: {simple_action(process)}. {patient_guidance(process)}"
+            )
 
 
 def _render_help(process_id: str) -> None:
@@ -189,6 +195,17 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
         f'<div class="patient-next-detail-value">{escape(deadline)}</div></div></div></div></div></div>'
         f'<div class="patient-next-guidance">{icon("alert" if overdue else "info",16)}<span>{escape(guidance)}</span></div></section>', unsafe_allow_html=True,
     )
+    with st.container(border=True):
+        st.markdown('<h2 class="patient-section-title">Etapas de acompanhamento</h2>', unsafe_allow_html=True)
+        st.write("O destaque mostra onde seu processo está. As outras etapas ajudam a entender o caminho.")
+        st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
+        for title, stages, current, status, health in (
+            ("Na Justiça", JUDICIAL_STAGES, int(process["etapa_judicial_ordem"]), str(process["etapa_judicial"]), False),
+            ("Na rede de saúde", HEALTH_STAGES[process["tipo_fluxo_saude"]], int(process["etapa_saude_ordem"]), str(process["etapa_saude"]), True),
+        ):
+            st.markdown(timeline_html(title, stages, current, status, health=health,
+                                     contrast=bool(st.session_state.get("a11y_contrast", False))), unsafe_allow_html=True)
+        st.caption("As etapas são marcos de acompanhamento e não medem a chance de ganhar o processo.")
     with st.container(key="patient_bottom"):
         movement, help_column = st.columns(2)
         with movement:
@@ -201,23 +218,3 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
                 )
         with help_column:
             _render_help(str(process["processo_id"]))
-    with st.container(key="patient_actions"):
-        action, note = st.columns([3,2])
-        with action:
-            download_summary(process, "patient_pdf", compact=True)
-        with note:
-            st.markdown('<div class="patient-discreet-note">Resumo em PDF · Guarde ou compartilhe com quem acompanha seu processo.</div>', unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown('<h2 class="patient-section-title">Ouvir o resumo do meu processo</h2>', unsafe_allow_html=True)
-        speech_summary(f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. Na Justiça: {court_status(process)[2]} Na saúde: {health_status(process)[2]} O que fazer agora: {simple_action(process)}. {guidance}")
-    with st.container(border=True):
-        st.markdown('<h2 class="patient-section-title">Etapas de acompanhamento</h2>', unsafe_allow_html=True)
-        st.write("O destaque mostra onde seu processo está. As outras etapas ajudam a entender o caminho.")
-        st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
-        for title, stages, current, status, health in (
-            ("Na Justiça", JUDICIAL_STAGES, int(process["etapa_judicial_ordem"]), str(process["etapa_judicial"]), False),
-            ("Na rede de saúde", HEALTH_STAGES[process["tipo_fluxo_saude"]], int(process["etapa_saude_ordem"]), str(process["etapa_saude"]), True),
-        ):
-            st.markdown(timeline_html(title, stages, current, status, health=health,
-                                     contrast=bool(st.session_state.get("a11y_contrast", False))), unsafe_allow_html=True)
-        st.caption("As etapas são marcos de acompanhamento e não medem a chance de ganhar o processo.")

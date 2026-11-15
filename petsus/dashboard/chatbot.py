@@ -30,7 +30,7 @@ def answer_question(question: str, *, is_manager: bool = False) -> str:
         return "Em ‘Ajuda e contato’, abra ‘Relatar e acompanhar’. Escolha o tipo de relato e o processo relacionado, descreva o problema e clique em ‘Registrar relato’. A resposta fica nessa mesma aba. Evite incluir CPF, senha e detalhes clínicos."
     if tokens.intersection({"pdf", "documento", "documentos", "baixar", "resumo"}):
         return ("Os resumos de acompanhamento podem ser baixados em PDF no perfil de paciente. Documentos e decisões oficiais devem ser obtidos com o tribunal ou com o representante do processo."
-                if is_manager else "Abra ‘Meus processos’ e use o botão de baixar resumo no cartão do processo desejado. Você também encontra o botão de resumo em ‘Meu acompanhamento’. Documentos e decisões oficiais devem ser obtidos com o tribunal ou com quem acompanha seu processo.")
+                if is_manager else "Abra ‘Meus processos’ e use o botão de baixar resumo no cartão do processo desejado. Nesse mesmo cartão, você pode ouvir o resumo. Documentos e decisões oficiais devem ser obtidos com o tribunal ou com quem acompanha seu processo.")
     if tokens.intersection({"filtro", "filtros", "periodo", "ajuizamento", "indicadores", "custos"}) and is_manager:
         return "O período de ajuizamento filtra a data de entrada dos processos. Os demais filtros refinam o recorte dos indicadores. Os custos apresentados são estimativas e não comprovam gasto executado. Use os ícones de ajuda dos indicadores para conferir suas definições."
     if tokens.intersection({"rename", "pcdt", "dcb", "cmed", "pmvg", "glossario", "palavras"}):
