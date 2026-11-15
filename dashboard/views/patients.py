@@ -41,21 +41,25 @@ def _render_patients(dff):
     with b:
         _distribution(patients, "sexo", "Distribuição por sexo", height=380, patients=True)
     _ranking(patients, "condicao_clinica", "Condições clínicas mais frequentes")
-    with st.container(border=True, key="manager_panel_perfil_socioassistencial"):
-        section_title("Perfil socioassistencial")
-        rows = []
-        for title, column, value in [("SUS exclusivo", "sus_exclusivo", "Sim"), ("Pessoa com deficiência", "pcd", "Sim"), ("Doença rara", "doenca_rara", "Sim"), ("Renda até 1 salário mínimo", "renda_familiar", "Até 1 salário mínimo")]:
-            mask = patients[column].eq(value)
-            rows.append({"Indicador": title, "Pacientes distintos": _count(patients, mask), "% dos pacientes distintos": _rate(patients, mask)})
-        _table(pd.DataFrame(rows), height=220)
-    with st.container(border=True, key="manager_panel_distribuicao_do_custo_acumulado_por_paciente"):
-        section_title("Distribuição do custo acumulado por paciente")
-        totals = dff.groupby("paciente_id", as_index=False)["custo_estimado"].sum()
-        totals["processo_id"] = totals["paciente_id"]
-        totals["faixa_custo"] = pd.cut(totals["custo_estimado"], bins=[-1, 1000, 10000, 100000, float("inf")], labels=["Até R$ 1 mil", "Mais de R$ 1 mil até R$ 10 mil", "Mais de R$ 10 mil até R$ 100 mil", "Mais de R$ 100 mil"])
-        grouped = protected_aggregate(totals, ["faixa_custo"])
-        _table(grouped[["faixa_custo", "pacientes", "custo_total"]])
-        st.caption("A análise usa faixas com pelo menos 5 pacientes distintos. Nomes, CPFs e rankings individuais não são necessários nesta visão analítica. Para uma consulta operacional autorizada, use Andamento.")
+    social_column, cost_column = st.columns(2)
+    with social_column:
+        with st.container(border=True, key="manager_panel_perfil_socioassistencial"):
+            section_title("Perfil socioassistencial")
+            rows = []
+            for title, column, value in [("SUS exclusivo", "sus_exclusivo", "Sim"), ("Pessoa com deficiência", "pcd", "Sim"), ("Doença rara", "doenca_rara", "Sim"), ("Renda até 1 salário mínimo", "renda_familiar", "Até 1 salário mínimo")]:
+                mask = patients[column].eq(value)
+                rows.append({"Indicador": title, "Pacientes distintos": _count(patients, mask), "% dos pacientes distintos": _rate(patients, mask)})
+            _table(pd.DataFrame(rows), height=220)
+    with cost_column:
+        with st.container(border=True, key="manager_panel_distribuicao_do_custo_acumulado_por_paciente"):
+            section_title("Distribuição do custo acumulado por paciente")
+            totals = dff.groupby("paciente_id", as_index=False)["custo_estimado"].sum()
+            totals["processo_id"] = totals["paciente_id"]
+            totals["faixa_custo"] = pd.cut(totals["custo_estimado"], bins=[-1, 1000, 10000, 100000, float("inf")], labels=["Até R$ 1 mil", "Mais de R$ 1 mil até R$ 10 mil", "Mais de R$ 10 mil até R$ 100 mil", "Mais de R$ 100 mil"])
+            grouped = protected_aggregate(totals, ["faixa_custo"])
+            _table(grouped[["faixa_custo", "pacientes", "custo_total"]])
+            st.caption("A análise usa faixas com pelo menos 5 pacientes distintos. Nomes, CPFs e rankings individuais não são necessários nesta visão analítica. Para uma consulta operacional autorizada, use Andamento.")
+
 
 
 def render_patients(dff, base, k, participacao, part_custo, paciente_ids_sel):
