@@ -4,7 +4,7 @@ import re
 import unicodedata
 
 MANAGER_PAGES = (
-    "Visão Geral", "Andamento", "Demandas", "Medicamentos", "Competência",
+    "Visão Geral", "Processos", "Andamento", "Demandas", "Medicamentos", "Competência",
     "Custos", "Prevenção", "Geografia", "Pacientes", "Gestão interna", "Ajuda e feedback",
 )
 USER_PAGE_MAP = {
@@ -14,6 +14,7 @@ USER_PAGE_MAP = {
 }
 
 PAGE_ICONS = {
+    "Processos": "document",
     "Visão Geral": "chart", "Andamento": "clock", "Demandas": "document",
     "Medicamentos": "medical", "Competência": "scales", "Custos": "wallet",
     "Prevenção": "check", "Geografia": "location", "Pacientes": "users",
@@ -35,6 +36,7 @@ def navigation_key(page: str) -> str:
     return "nav_" + re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
 
 PAGE_SUBTITLES = {
+    "Processos": "Lista de todos os processos, com requerente, município, assunto e andamento.",
     "Visão Geral": "Indicadores executivos, evolução mensal e principais recortes.",
     "Andamento": "Andamento judicial e cumprimento na saúde acompanhados separadamente.",
     "Demandas": "Análise de tipos de demanda, fase processual, liminares e urgência.",

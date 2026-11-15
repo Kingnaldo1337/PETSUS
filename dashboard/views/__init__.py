@@ -47,6 +47,10 @@ def render_pages(pagina, dff, base, k, participacao, part_custo, paciente_ids_se
         from petsus.dashboard.internal_management import render_internal_management
         render_internal_management(auth_store)
         return
+    if pagina == "Processos":
+        from .processes import render_processes
+        render_processes(base)
+        return
     if dff.empty:
         st.info("Nenhum processo encontrado para os filtros selecionados.")
         return

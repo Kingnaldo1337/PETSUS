@@ -29,8 +29,9 @@ def generate_answer(question: str, history: list[dict], *, is_manager: bool) -> 
     if not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
         raise ChatServiceError("O modelo do assistente precisa ser conferido pela equipe.")
     navigation = (
-        "Perfil gestor: Visão Geral, Andamento, Demandas, Medicamentos, Competência, Custos, "
+        "Perfil gestor: Visão Geral, Processos, Andamento, Demandas, Medicamentos, Competência, Custos, "
         "Prevenção, Geografia, Pacientes, Gestão interna e Ajuda e feedback. "
+        "Processos lista todos os processos com requerente, município, assunto e andamento. "
         "O Glossário está em Ajuda e feedback. O período filtra a data de ajuizamento. "
         "Custos são estimativas e não comprovam gasto executado."
         if is_manager else

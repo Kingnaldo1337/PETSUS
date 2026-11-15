@@ -309,7 +309,7 @@ with st.sidebar:
     pagina = page_map[page_label]
     if not auth_user.is_manager:
         st.markdown(f'<div class="patient-sidebar-note">{icon("lock",13)} Um espaço seguro para acompanhar os seus processos.</div>', unsafe_allow_html=True)
-    if auth_user.is_manager and pagina not in ("Gestão interna", "Ajuda e feedback"):
+    if auth_user.is_manager and pagina not in ("Gestão interna", "Ajuda e feedback", "Processos"):
         st.divider()
         st.markdown('<div class="patient-sidebar-label">REFINAR ANÁLISE</div><div class="manager-filter-caption">Ajuste os filtros para explorar os indicadores.</div>', unsafe_allow_html=True)
         st.button("Limpar todos os filtros", key="clear_filters_button", on_click=clear_dashboard_filters, use_container_width=True)
@@ -353,7 +353,7 @@ elif not auth_user.is_manager:
     render_patient_page(pagina, base)
 else:
     dff = base
-    if pagina != "Gestão interna":
+    if pagina not in {"Gestão interna", "Processos"}:
         if base.empty:
             st.info("Não há registros disponíveis.")
             st.stop()
