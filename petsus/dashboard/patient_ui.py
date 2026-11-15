@@ -329,7 +329,14 @@ def _manager_styles() -> str:
     .manager-filter-caption {color:#A9C1D8;font-size:.72rem;line-height:1.6;margin:.1rem 0 .6rem;}
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,175px),1fr));gap:1rem;}
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card) > [data-testid="stColumn"] {width:auto!important;min-width:0!important;flex:unset!important;}
-    .stApp:has(.manager-portal-marker) .metric-card {background:linear-gradient(145deg,#FFFFFF 65%,#F7FAFD);border:1px solid var(--patient-border);border-top:3px solid #D1E4F4;border-radius:var(--portal-radius);padding:1.15rem 1.2rem;min-height:178px;height:100%!important;box-shadow:var(--portal-shadow);transition:border-color .18s ease,box-shadow .18s ease;}
+    .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card),
+    .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .insight-card) {align-items:stretch;grid-auto-rows:1fr;}
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"]:has(.metric-card),
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"]:has(.insight-card),
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] :is([data-testid="stVerticalBlock"],[data-testid="stElementContainer"],[data-testid="stMarkdown"],[data-testid="stMarkdownContainer"]):has(.metric-card),
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] :is([data-testid="stVerticalBlock"],[data-testid="stElementContainer"],[data-testid="stMarkdown"],[data-testid="stMarkdownContainer"]):has(.insight-card) {display:flex;flex-direction:column;flex:1;align-self:stretch;}
+    .stApp:has(.manager-portal-marker) :is(.metric-card,.insight-card) {flex:1;height:auto!important;box-sizing:border-box;width:100%;}
+    .stApp:has(.manager-portal-marker) .metric-card {background:linear-gradient(145deg,#FFFFFF 65%,#F7FAFD);border:1px solid var(--patient-border);border-top:3px solid #D1E4F4;border-radius:var(--portal-radius);padding:1.15rem 1.2rem;min-height:178px;height:auto!important;box-shadow:var(--portal-shadow);transition:border-color .18s ease,box-shadow .18s ease;}
     .stApp:has(.manager-portal-marker) .metric-card:has(.icon-green) {border-top-color:#8BD0C7;}
     .stApp:has(.manager-portal-marker) .metric-card:has(.icon-orange) {border-top-color:#E8C886;}
     .stApp:has(.manager-portal-marker) .metric-card:has(.icon-purple) {border-top-color:#BDAEE8;}
