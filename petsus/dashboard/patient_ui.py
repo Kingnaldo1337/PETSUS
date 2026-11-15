@@ -333,8 +333,8 @@ def _manager_styles() -> str:
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .insight-card) {align-items:stretch;grid-auto-rows:1fr;}
     .stApp:has(.manager-portal-marker) [data-testid="stColumn"]:has(.metric-card),
     .stApp:has(.manager-portal-marker) [data-testid="stColumn"]:has(.insight-card),
-    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] :is([data-testid="stVerticalBlock"],[data-testid="stElementContainer"],[data-testid="stMarkdown"],[data-testid="stMarkdownContainer"]):has(.metric-card),
-    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] :is([data-testid="stVerticalBlock"],[data-testid="stElementContainer"],[data-testid="stMarkdown"],[data-testid="stMarkdownContainer"]):has(.insight-card) {display:flex;flex-direction:column;flex:1;align-self:stretch;}
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] div:has(.metric-card),
+    .stApp:has(.manager-portal-marker) [data-testid="stColumn"] div:has(.insight-card) {display:flex;flex-direction:column;flex:1;align-self:stretch;}
     .stApp:has(.manager-portal-marker) :is(.metric-card,.insight-card) {flex:1;height:auto!important;box-sizing:border-box;width:100%;}
     .stApp:has(.manager-portal-marker) .metric-card {background:linear-gradient(145deg,#FFFFFF 65%,#F7FAFD);border:1px solid var(--patient-border);border-top:3px solid #D1E4F4;border-radius:var(--portal-radius);padding:1.15rem 1.2rem;min-height:178px;height:auto!important;box-shadow:var(--portal-shadow);transition:border-color .18s ease,box-shadow .18s ease;}
     .stApp:has(.manager-portal-marker) .metric-card:has(.icon-green) {border-top-color:#8BD0C7;}
