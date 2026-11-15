@@ -35,7 +35,10 @@ def test_request_has_context_redacts_identifiers_and_keeps_key_in_header():
 
 @pytest.mark.parametrize("failure, expected", [
     (HTTPError("https://example.com", 429, "private", {}, None), "limite de uso"),
-    (HTTPError("https://example.com", 403, "test-secret", {}, None), "conferida"),
+    (HTTPError("https://example.com", 400, "test-secret", {}, None), "HTTP 400"),
+    (HTTPError("https://example.com", 401, "test-secret", {}, None), "HTTP 401"),
+    (HTTPError("https://example.com", 403, "test-secret", {}, None), "HTTP 403"),
+    (HTTPError("https://example.com", 404, "test-secret", {}, None), "GEMINI_MODEL"),
     (URLError("test-secret"), "conectar"),
 ])
 def test_errors_are_safe_and_actionable(failure, expected):

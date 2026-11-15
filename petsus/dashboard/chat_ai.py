@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -79,10 +80,18 @@ def generate_answer(question: str, history: list[dict], *, is_manager: bool) -> 
             raise ChatServiceError("Não recebi uma resposta. Tente reformular a pergunta.")
         return result[:6000]
     except HTTPError as error:
+        # Nunca registrar o corpo, a URL ou os headers: podem conter credenciais.
+        logging.getLogger(__name__).warning("Gemini generateContent falhou: HTTP %s; modelo=%s", error.code, model)
         if error.code == 429:
             raise ChatServiceError("O limite de uso da IA foi atingido. Tente novamente mais tarde.") from None
-        if error.code in {400, 401, 403, 404}:
-            raise ChatServiceError("A conexão com a IA precisa ser conferida pela equipe.") from None
+        if error.code == 400:
+            raise ChatServiceError("A IA recusou a solicitação (HTTP 400). A equipe precisa conferir a configuração e os requisitos do projeto no Google AI Studio.") from None
+        if error.code == 401:
+            raise ChatServiceError("A autenticação da IA falhou (HTTP 401). A equipe precisa conferir a credencial configurada.") from None
+        if error.code == 403:
+            raise ChatServiceError("O acesso à IA foi negado (HTTP 403). A permissão do projeto e as restrições da chave precisam ser conferidas pela equipe.") from None
+        if error.code == 404:
+            raise ChatServiceError("O modelo configurado para a IA não foi encontrado (HTTP 404). A equipe precisa conferir GEMINI_MODEL e sua disponibilidade no projeto.") from None
         raise ChatServiceError("A IA está indisponível neste momento. Tente novamente mais tarde.") from None
     except (URLError, TimeoutError, OSError, ValueError, KeyError, TypeError, AttributeError):
         raise ChatServiceError("Não consegui conectar à IA. Tente novamente em alguns instantes.") from None
