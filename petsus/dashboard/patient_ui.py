@@ -327,7 +327,7 @@ def _manager_styles() -> str:
     .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] .st-key-clear_filters_button button {min-height:36px;background:#FFFFFF09!important;border-color:#FFFFFF35!important;border-radius:8px;}
     .stApp:has(.manager-portal-marker) [data-testid="stSidebar"] .st-key-clear_filters_button button p {font-size:.76rem;}
     .manager-filter-caption {color:#A9C1D8;font-size:.72rem;line-height:1.6;margin:.1rem 0 .6rem;}
-    .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,175px),1fr));gap:1rem;}
+    .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,175px),1fr));gap:1rem;margin-bottom:.8rem;}
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card) > [data-testid="stColumn"] {width:auto!important;min-width:0!important;flex:unset!important;}
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .metric-card),
     .stApp:has(.manager-portal-marker) [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .insight-card) {align-items:stretch;grid-auto-rows:1fr;}
