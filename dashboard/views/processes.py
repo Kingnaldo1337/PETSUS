@@ -37,10 +37,15 @@ def render_processes(base: pd.DataFrame) -> None:
         "Buscar processo", key="process_list_search",
         placeholder="Número, requerente, município, assunto ou andamento",
     )
+    municipalities = st.multiselect(
+        "Município", sorted(base["municipio"].dropna().unique()) if "municipio" in base else [],
+        key="process_list_municipalities", placeholder="Todos os municípios",
+    )
     if base.empty:
         st.info("Ainda não há processos cadastrados.")
         return
-    view = process_list(base, query)
+    filtered = base.loc[base["municipio"].isin(municipalities)] if municipalities else base
+    view = process_list(filtered, query)
     st.caption(f"{len(view)} de {base['processo_id'].nunique()} processos cadastrados")
     if view.empty:
         st.info("Nenhum processo encontrado para essa busca.")
