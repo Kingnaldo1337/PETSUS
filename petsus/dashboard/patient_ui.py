@@ -108,6 +108,10 @@ def render_portal_styles(is_manager: bool = False) -> None:
     .patient-privacy-meta span {white-space:nowrap;}
     .patient-order-heading {display:flex;justify-content:space-between;gap:.8rem;align-items:center;margin-top:.25rem;}
     .patient-order-label {font-size:.72rem;font-weight:700;letter-spacing:.08em;color:#607B95;text-transform:uppercase;}
+    h2.patient-section-title {font-size:clamp(1.2rem,2.2vw,1.5rem)!important;font-weight:750!important;
+        line-height:1.35!important;letter-spacing:normal!important;text-transform:none!important;
+        color:#122C50;margin:.9rem 0 .7rem!important;padding:0!important;}
+    .patient-next-body h2.patient-section-title {margin:0 0 .7rem!important;}
     .patient-demo-badge {font-size:.64rem;font-weight:650;color:#6A7F99;background:#E9EFF7;border:1px solid #DFE7F1;border-radius:6px;padding:.25rem .5rem;white-space:nowrap;}
     .st-key-patient_process [data-baseweb="select"] > div {min-height:48px;background:#fff;border:1px solid #DCE5EF;border-radius:10px;box-shadow:0 2px 5px #173B6110;}
     .patient-process-caption {font-size:.71rem;color:#6D829A;margin:.2rem 0 0;overflow-wrap:anywhere;}
@@ -209,7 +213,7 @@ def render_portal_styles(is_manager: bool = False) -> None:
         .st-key-patient_movement,.st-key-patient_help,[class*="st-key-patient_record_"],[class*="st-key-patient_document_"] {background:#000!important;color:#fff!important;border-color:#fff!important;box-shadow:none!important;}
         .patient-privacy-message,.patient-privacy-meta,.patient-next-eyebrow,.patient-next-title,.patient-next-detail-label,.patient-next-detail-value,.patient-next-guidance,
         .patient-status-description,.patient-status-footer,.patient-status-footer strong,.patient-panel-sub,.patient-movement-date,.patient-movement-text,
-        .patient-order-label,.patient-process-caption,.patient-record-label,.patient-record-details,.patient-record-details strong,.patient-page-eyebrow,.patient-discreet-note,.patient-footer {color:#E5F4FF!important;}
+        .patient-section-title,.patient-order-label,.patient-process-caption,.patient-record-label,.patient-record-details,.patient-record-details strong,.patient-page-eyebrow,.patient-discreet-note,.patient-footer {color:#E5F4FF!important;}
         .patient-badge,.patient-demo-badge {background:#000!important;color:#fff!important;border:1px solid #fff!important;}
         .patient-status-symbol,.patient-status-card.health .patient-status-symbol,.patient-panel-icon {color:#8DE5EF!important;}
         .patient-next-symbol {background:#fff!important;color:#000!important;}

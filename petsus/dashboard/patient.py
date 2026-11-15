@@ -126,19 +126,7 @@ def _render_records(rows: pd.DataFrame) -> None:
                 f'<div><strong>NA SAÚDE</strong>{escape(str(process["etapa_saude"]))}</div></div>', unsafe_allow_html=True,
             )
             st.button("Acompanhar este processo →", key=f"patient_open_{index}", on_click=open_patient_process, args=(str(process["processo_id"]),))
-
-
-def _render_documents(rows: pd.DataFrame) -> None:
-    st.markdown('<p class="patient-discreet-note">Seus resumos de acompanhamento, reunidos em um só lugar. Documentos e decisões oficiais devem ser obtidos com o tribunal ou seu representante.</p>', unsafe_allow_html=True)
-    for index, process in rows.iterrows():
-        with st.container(border=True, key=f"patient_document_{index}"):
-            st.markdown(
-                '<div class="patient-panel-heading"><div class="patient-panel-icon">'
-                f'{icon("document",29)}</div><div><div class="patient-record-label">RESUMO DO ACOMPANHAMENTO</div>'
-                f'<h2 class="patient-panel-title">{escape(str(process["item_demandado"]))}</h2>'
-                f'<p class="patient-panel-sub">{escape(str(process["processo_id"]))} · Última movimentação: {date_label(process["ultima_movimentacao_data"])}</p></div></div>', unsafe_allow_html=True,
-            )
-            download_summary(process, f"document_pdf_{index}")
+            download_summary(process, f"record_pdf_{process['processo_id']}", compact=True)
 
 
 def _render_help(process_id: str) -> None:
@@ -167,11 +155,8 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     if page == "Meus processos":
         _render_records(rows)
         return
-    if page == "Meus documentos":
-        _render_documents(rows)
-        return
 
-    st.markdown('<style>.patient-status-description,.patient-next-guidance,.patient-next-detail-value,.patient-process-caption {font-size:1rem!important;line-height:1.65!important;}.patient-badge {font-size:.95rem!important;}</style><div class="patient-order-heading"><span class="patient-order-label">1. Escolha o processo que quer consultar</span></div>', unsafe_allow_html=True)
+    st.markdown('<style>.patient-status-description,.patient-next-guidance,.patient-next-detail-value,.patient-process-caption {font-size:1rem!important;line-height:1.65!important;}.patient-badge {font-size:.95rem!important;}</style><h2 class="patient-section-title">1. Escolha o processo que quer consultar</h2>', unsafe_allow_html=True)
     process_ids = rows["processo_id"].astype(str).tolist()
     if st.session_state.get("patient_process") not in process_ids:
         st.session_state.pop("patient_process", None)
@@ -185,7 +170,7 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     process = rows[rows["processo_id"].astype(str) == selected].iloc[0]
     long_item = f'{escape(str(process["item_demandado"]))} · ' if len(str(process["item_demandado"])) > 45 else ""
     st.markdown(f'<div class="patient-process-caption">{long_item}Número do processo: {escape(str(process["processo_id"]))} · Iniciado em {date_label(process["data_ajuizamento"])}</div>', unsafe_allow_html=True)
-    st.subheader("2. Veja como está agora")
+    st.markdown('<h2 class="patient-section-title">2. Veja como está agora</h2>', unsafe_allow_html=True)
     st.markdown(status_cards(process), unsafe_allow_html=True)
     guidance = patient_guidance(process)
     overdue = process["indicador_atraso"] == "Sim"
@@ -195,8 +180,8 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
     st.markdown(
         f'<section class="patient-next-card{" overdue" if overdue else ""}" aria-label="Próximo passo">'
         f'<div class="patient-next-main"><div class="patient-next-symbol">{icon("arrow",24)}</div>'
-        '<div class="patient-next-body"><div class="patient-next-eyebrow">3. O que você precisa fazer agora</div>'
-        f'<h2 class="patient-next-title">{escape(simple_action(process))}</h2>'
+        '<div class="patient-next-body"><h2 class="patient-section-title">3. O que você precisa fazer agora</h2>'
+        f'<h3 class="patient-next-title">{escape(simple_action(process))}</h3>'
         '<div class="patient-next-details"><div class="patient-next-detail">'
         f'{icon("person",21)}<div><div class="patient-next-detail-label">Quem acompanha</div>'
         f'<div class="patient-next-detail-value">{escape("Equipe da Justiça" if process["responsavel_etapa"] == "Poder Judiciário" else "Equipe da saúde")}</div></div></div>'
@@ -223,10 +208,10 @@ def render_patient_page(page: str, base: pd.DataFrame) -> None:
         with note:
             st.markdown('<div class="patient-discreet-note">Resumo em PDF · Guarde ou compartilhe com quem acompanha seu processo.</div>', unsafe_allow_html=True)
     with st.container(border=True):
-        st.subheader("Ouvir o resumo do meu processo")
+        st.markdown('<h2 class="patient-section-title">Ouvir o resumo do meu processo</h2>', unsafe_allow_html=True)
         speech_summary(f"Processo {process['processo_id']}. Item solicitado: {process['item_demandado']}. Na Justiça: {court_status(process)[2]} Na saúde: {health_status(process)[2]} O que fazer agora: {simple_action(process)}. {guidance}")
     with st.container(border=True):
-        st.subheader("Etapas de acompanhamento")
+        st.markdown('<h2 class="patient-section-title">Etapas de acompanhamento</h2>', unsafe_allow_html=True)
         st.write("O destaque mostra onde seu processo está. As outras etapas ajudam a entender o caminho.")
         st.markdown(TIMELINE_CSS, unsafe_allow_html=True)
         for title, stages, current, status, health in (

@@ -33,9 +33,9 @@ def generate_answer(question: str, history: list[dict], *, is_manager: bool) -> 
         "O Glossário está em Ajuda e feedback. O período filtra a data de ajuizamento. "
         "Custos são estimativas e não comprovam gasto executado."
         if is_manager else
-        "Perfil paciente: Meu acompanhamento, Meus processos, Meus documentos e Ajuda e contato. "
+        "Perfil paciente: Meu acompanhamento, Meus processos e Ajuda e contato. "
         "Em Meu acompanhamento, escolha um processo e veja Na Justiça, Na saúde, o próximo passo e as etapas. "
-        "Meus documentos permite baixar resumos PDF; documentos oficiais são obtidos com o tribunal ou representante. "
+        "Em Meus processos, cada cartão permite acompanhar o processo e baixar seu resumo PDF; documentos oficiais são obtidos com o tribunal ou representante. "
         "Ajuda e contato contém contatos, Relatar e acompanhar, Significado das palavras, Sobre os dados, "
         "Avaliar uso e Principais dúvidas. Relatos e respostas ficam em Relatar e acompanhar."
     )

@@ -10,7 +10,6 @@ MANAGER_PAGES = (
 USER_PAGE_MAP = {
     "Meu acompanhamento": "Meu acompanhamento",
     "Meus processos": "Meus processos",
-    "Meus documentos": "Meus documentos",
     "Ajuda e contato": "Ajuda e feedback",
 }
 
@@ -20,7 +19,7 @@ PAGE_ICONS = {
     "Prevenção": "check", "Geografia": "location", "Pacientes": "users",
     "Base de Dados": "document", "Gestão interna": "lock", "Ajuda e feedback": "chat",
     "Meu acompanhamento": "clock", "Meus processos": "document",
-    "Meus documentos": "download", "Ajuda e contato": "chat",
+    "Ajuda e contato": "chat",
 }
 
 MATERIAL_ICONS = {
@@ -49,8 +48,7 @@ PAGE_SUBTITLES = {
     "Prevenção": "Causas recorrentes e oportunidades de resolução administrativa.",
     "Ajuda e feedback": "Ajuda, relato de erros, avaliação de uso e informações sobre os dados.",
     "Meu acompanhamento": "Veja a situação do seu processo, os próximos passos e quem procurar.",
-    "Meus processos": "Consulte os processos vinculados à sua conta.",
-    "Meus documentos": "Baixe o resumo de acompanhamento de cada processo.",
+    "Meus processos": "Consulte seus processos e baixe o resumo de acompanhamento de cada um.",
 }
 
 
