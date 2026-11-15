@@ -10,6 +10,7 @@ PROCESS_COLUMNS = {
     "processo_id": "Processo",
     "paciente": "Requerente",
     "municipio": "Município",
+    "uf": "Estado (UF)",
     "item_demandado": "Assunto do processo",
     "fase_processual": "Fase processual",
     "etapa_judicial": "Andamento judicial",
@@ -37,14 +38,22 @@ def render_processes(base: pd.DataFrame) -> None:
         "Buscar processo", key="process_list_search",
         placeholder="Número, requerente, município, assunto ou andamento",
     )
+    states = st.multiselect(
+        "Estado (UF)", sorted(base["uf"].dropna().unique()) if "uf" in base else [],
+        key="process_list_states", placeholder="Todos os estados",
+    )
+    filtered = base.loc[base["uf"].isin(states)] if states else base
+    municipality_options = sorted(filtered["municipio"].dropna().unique()) if "municipio" in filtered else []
+    if "process_list_municipalities" in st.session_state:
+        st.session_state["process_list_municipalities"] = [value for value in st.session_state["process_list_municipalities"] if value in municipality_options]
     municipalities = st.multiselect(
-        "Município", sorted(base["municipio"].dropna().unique()) if "municipio" in base else [],
+        "Município", municipality_options,
         key="process_list_municipalities", placeholder="Todos os municípios",
     )
     if base.empty:
         st.info("Ainda não há processos cadastrados.")
         return
-    filtered = base.loc[base["municipio"].isin(municipalities)] if municipalities else base
+    filtered = filtered.loc[filtered["municipio"].isin(municipalities)] if municipalities else filtered
     view = process_list(filtered, query)
     st.caption(f"{len(view)} de {base['processo_id'].nunique()} processos cadastrados")
     if view.empty:

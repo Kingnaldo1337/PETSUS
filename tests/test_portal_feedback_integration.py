@@ -70,6 +70,26 @@ def test_feedback_is_registered_and_patient_can_track_own_report(portal_source):
     assert any("Recebido" in item.label for item in app.expander)
 
 
+def test_state_and_municipality_filters_in_process_list(portal_source):
+    _, store = portal_source
+    user = store.create_user("98765432100", "senha-teste-segura", "Gestor de teste", "gestor", must_change_password=False)
+    app = authenticated_app(user)
+    assert app.multiselect(key="filter_uf") is not None
+    assert app.multiselect(key="filter_municipio") is not None
+    navigate(app, "Processos")
+    states = app.multiselect(key="process_list_states")
+    state = states.options[0]
+    states.select(state).run()
+    assert not app.exception
+    view = app.dataframe[0].value
+    assert set(view["Estado (UF)"]) == {state}
+    municipalities = app.multiselect(key="process_list_municipalities")
+    city = municipalities.options[0]
+    municipalities.select(city).run()
+    assert not app.exception
+    assert set(app.dataframe[0].value["Município"]) == {city}
+
+
 def test_every_manager_page_renders_and_empty_results_are_handled(portal_source):
     _, store = portal_source
     user = store.create_user("98765432100", "senha-teste-segura", "Gestor de teste", "gestor", must_change_password=False)

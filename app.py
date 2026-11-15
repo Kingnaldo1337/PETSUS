@@ -313,7 +313,12 @@ with st.sidebar:
         st.divider()
         st.markdown('<div class="patient-sidebar-label">REFINAR ANÁLISE</div><div class="manager-filter-caption">Ajuste os filtros para explorar os indicadores.</div>', unsafe_allow_html=True)
         st.button("Limpar todos os filtros", key="clear_filters_button", on_click=clear_dashboard_filters, use_container_width=True)
-        selected_fields["municipio"] = tuple(multiselect_sidebar("Município", base, "municipio"))
+        selected_fields["uf"] = tuple(multiselect_sidebar("Estado (UF)", base, "uf"))
+        municipality_source = base[base["uf"].astype(str).isin(selected_fields["uf"])] if selected_fields["uf"] else base
+        municipality_options = set(municipality_source["municipio"].dropna().astype(str))
+        if "filter_municipio" in st.session_state:
+            st.session_state["filter_municipio"] = [value for value in st.session_state["filter_municipio"] if value in municipality_options]
+        selected_fields["municipio"] = tuple(multiselect_sidebar("Município", municipality_source, "municipio"))
         search = st.text_input("Buscar paciente / CPF / processo", key="filter_search", placeholder="Nome, código ou número do processo")
         if len(normalize_text(search)) >= 2:
             matches = base[base["_search"].str.contains(normalize_text(search), regex=False, na=False)]
@@ -339,7 +344,7 @@ with st.sidebar:
             with st.expander(group):
                 source = base[base["medicamento_petsus"] == "Sim"] if group == "Filtros de medicamentos" else base
                 for label, column in fields:
-                    if column == "municipio":
+                    if column in {"municipio", "uf"}:
                         continue
                     if column in source.columns:
                         selected_fields[column] = tuple(multiselect_sidebar(label, source, column))
