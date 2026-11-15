@@ -64,7 +64,7 @@ def render_chatbot(user) -> None:
             st.session_state["support_chat_pending"] = question
 
     st.markdown("""<style>
-    .st-key-support_chat_launcher{position:fixed!important;bottom:1.2rem;right:1.2rem;
+    .st-key-support_chat_launcher{position:fixed!important;bottom:5rem;right:1.2rem;
         z-index:99990;width:auto!important;max-width:calc(100vw - 2rem)!important;}
     .st-key-support_chat_launcher [data-testid="stPopoverButton"]{box-shadow:0 8px 28px #102F5633;
         border-radius:28px;min-height:50px;background:#087F8C;color:white;border:1px solid #087F8C;padding:.65rem 1.1rem;}
