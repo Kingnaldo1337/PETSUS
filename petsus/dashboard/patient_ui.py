@@ -132,7 +132,7 @@ def render_portal_styles(is_manager: bool = False) -> None:
     .patient-status-description {font-size:.78rem!important;line-height:1.6!important;color:var(--patient-muted)!important;margin:.65rem 0 .85rem!important;}
     .patient-status-footer {border-top:1px solid #D7E0EB90;padding:.65rem 0;font-size:.67rem;line-height:1.5;color:#637B95;margin-top:.2rem;}
     .patient-status-footer strong {font-weight:650;color:#36556F;}
-    .patient-next-card {background:linear-gradient(115deg,#E0F4FF 0%,#E8F6FF 55%,#E1F2FD 100%);border:1px solid #BBDFF2;box-shadow:0 4px 15px #1F739009;border-radius:14px;padding:1.2rem 1.3rem;margin:.2rem 0 .1rem;}
+    .patient-next-card {background:linear-gradient(115deg,#E0F4FF 0%,#E8F6FF 55%,#E1F2FD 100%);border:1px solid #BBDFF2;box-shadow:0 4px 15px #1F739009;border-radius:14px;padding:1.2rem 1.3rem;margin:1rem 0;}
     .patient-next-main {display:flex;gap:1rem;align-items:flex-start;}
     .patient-next-symbol {display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border-radius:50%;background:#088A99;color:#fff;box-shadow:0 3px 8px #007A8D21;}
     .patient-next-body {min-width:0;flex:1;}

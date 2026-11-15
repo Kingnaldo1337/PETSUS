@@ -51,7 +51,7 @@ def polish_styles(contrast: bool = False) -> str:
     .stApp:has(.patient-portal-marker) [data-testid="stMain"] button[kind="primary"]:hover {filter:brightness(1.05);box-shadow:0 6px 16px #087F8C24;}
     .patient-status-card {transition:box-shadow .22s ease,border-color .22s ease;}
     .patient-next-card {background:linear-gradient(115deg,#123C59,#0C626A);border-color:#297A86;box-shadow:0 10px 30px #0C626A16;}
-    .patient-next-title {color:#FFFFFF!important;}
+    .patient-next-card h2.patient-section-title,.patient-next-title {color:#FFFFFF!important;}
     .patient-next-eyebrow,.patient-next-detail-label {color:#B9E8EC!important;}
     .patient-next-detail-value,.patient-next-guidance {color:#EBF7FA!important;}
     .patient-next-detail {color:#94DFE6;}
