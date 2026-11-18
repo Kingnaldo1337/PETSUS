@@ -8,7 +8,7 @@
   if (previous) previous.close(false);
   const restartKey = key + '.restart.' + config.restart;
   const requested = config.restart && !read(sessionStorage,restartKey);
-  if (!requested && (read(localStorage, key) || read(sessionStorage, key))) return;
+  if (!requested && (read(localStorage, key) || (config.role !== 'gestor' && read(sessionStorage, key)))) return;
   if (requested) write(sessionStorage,restartKey);
   const tours = {
   'Meus processos': [
@@ -35,7 +35,30 @@
     ['.st-key-nav_ajuda_e_contato', 'Ajuda e contato', 'Encontre contatos, entenda os termos usados no portal e relate um problema.'],
     ['.st-key-support_chat_launcher', 'Tire suas dúvidas', 'Use este botão para perguntar como usar o portal. Evite enviar CPF, senhas e dados de saúde.']
   ]};
-  const steps = config.steps || tours[config.page] || tours['Meu acompanhamento'];
+  let steps = config.steps || tours[config.page] || tours['Meu acompanhamento'];
+  let cardsPrepared = false;
+  function prepareCards() {
+    if (cardsPrepared) return;
+    cardsPrepared = true;
+    steps = steps.flatMap(step => {
+      if (step[0] !== '__manager_cards__') return [step];
+      return [...document.querySelectorAll('.metric-card,.insight-card')].filter(card => {
+        const rect = card.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }).map((card, i) => {
+        const id = 'manager-card-' + i;
+        card.setAttribute('data-dashjus-tour',id);
+        const label = card.querySelector('.metric-label,.insight-title');
+        const help = card.querySelector('.card-help');
+        const subtitle = card.querySelector('.metric-sub,.insight-desc');
+        // Read the definition rendered by the card itself, including the current
+        // context, instead of duplicating metric formulas in the tutorial.
+        const title = label ? [...label.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join('').trim() : 'Indicador';
+        const explanation = help?.getAttribute('data-help') || subtitle?.textContent || 'Este cartão resume o recorte selecionado.';
+        return ['[data-dashjus-tour="'+id+'"]',title,explanation];
+      });
+    });
+  }
   let index = 0, target, timer, closed = false;
   const focusBefore = document.activeElement;
   const root = document.createElement('div');
@@ -98,6 +121,7 @@
     box.style.top = Math.max(12,chosen.top)+'px';
   }
   function show(direction = 1) {
+    prepareCards();
     target = null;
     while (index >= 0 && index < steps.length) {
       const candidate = document.querySelector(steps[index][0]);

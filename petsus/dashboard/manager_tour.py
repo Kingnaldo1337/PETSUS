@@ -83,7 +83,7 @@ def manager_tour_steps(page: str) -> list[tuple[str, str, str]]:
             ('.st-key-filter_uf', 'Filtre por estado', 'Selecione uma ou mais UFs para refinar os indicadores. Sem seleção, todos os estados são considerados.'),
             ('.st-key-filter_municipio', 'Filtre por município', 'Selecione as cidades desejadas. A lista acompanha os estados escolhidos.'),
             ('.st-key-manager_filterbar', 'Defina o período', 'Este filtro usa a data de ajuizamento dos processos. A contagem mostra o recorte atual.'),
-            ('.metric-card', 'Leia os indicadores', 'Os cartões resumem o recorte. Use o ícone de interrogação para consultar a definição de cada indicador.'),
+            ('__manager_cards__', '', ''),
         ])
     steps.extend(specific)
     steps.append(('.st-key-support_chat_launcher', 'Tire dúvidas sobre o painel', 'O assistente explica como usar a plataforma. Não envie CPF, senhas ou dados de saúde.'))
