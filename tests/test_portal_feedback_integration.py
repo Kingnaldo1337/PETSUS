@@ -98,6 +98,9 @@ def test_every_manager_page_renders_and_empty_results_are_handled(portal_source)
     user = store.create_user("98765432100", "senha-teste-segura", "Gestor de teste", "gestor", must_change_password=False)
     app = authenticated_app(user)
     assert not app.exception
+    app.sidebar.button(key="patient_tour_restart").click().run()
+    assert not app.exception
+    assert app.session_state["patient_tour_restart_page"] == "Visão Geral"
     for page in navigation_for(True)[0][1:]:
         navigate(app, page)
         assert not app.exception, page

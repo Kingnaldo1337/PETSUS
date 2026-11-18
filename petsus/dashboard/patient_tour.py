@@ -11,7 +11,11 @@ import streamlit.components.v1 as components
 def render_patient_tour(user, restart: int = 0, page: str = "Meu acompanhamento") -> None:
     owner = hashlib.sha256(str(user.id).encode()).hexdigest()[:24]
     runtime = Path(__file__).with_suffix(".js").read_text(encoding="utf-8")
-    runtime = runtime.replace("__TOUR_CONFIG__", json.dumps({"owner": owner, "restart": restart, "page": page}))
+    config = {"owner": owner, "restart": restart, "page": page, "role": "gestor" if user.is_manager else "paciente"}
+    if user.is_manager:
+        from petsus.dashboard.manager_tour import manager_tour_steps
+        config["steps"] = manager_tour_steps(page)
+    runtime = runtime.replace("__TOUR_CONFIG__", json.dumps(config))
     payload = json.dumps(runtime, ensure_ascii=True).replace("<", "\\u003c")
     components.html(
         '<script>try {const doc=window.parent.document;const script=doc.createElement("script");'

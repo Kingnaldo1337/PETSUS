@@ -80,7 +80,7 @@ def _render_tracking(dff, user_role="gestor"):
     for row in process_rows.itertuples(index=False):
         patient = f" · {row.paciente}" if user_role != "usuario" else ""
         labels[f"{row.processo_id}{patient} · {row.item_demandado}"] = row.processo_id
-    selected_label = st.selectbox("Processo", list(labels), help="Selecione o processo que deseja acompanhar.")
+    selected_label = st.selectbox("Processo", list(labels), key="tracking_process", help="Selecione o processo que deseja acompanhar.")
     process = process_rows[process_rows["processo_id"] == labels[selected_label]].iloc[0]
 
     st.markdown(f"### {escape(str(process['item_demandado']))}")

@@ -1,10 +1,10 @@
 (() => {
   const config = __TOUR_CONFIG__;
-  const key = 'dashjus.patientTour.v2.' + config.owner + '.' + config.page;
+  const key = 'dashjus.patientTour.v2.' + config.owner + '.' + config.role + '.' + config.page;
   const read = (storage, name) => { try { return storage.getItem(name); } catch (_) { return null; } };
   const write = (storage, name) => { try { storage.setItem(name, '1'); } catch (_) {} };
   const previous = window.__dashjusPatientTour;
-  if (previous && previous.owner === config.owner && previous.page === config.page && previous.restart === config.restart) return;
+  if (previous && previous.owner === config.owner && previous.role === config.role && previous.page === config.page && previous.restart === config.restart) return;
   if (previous) previous.close(false);
   const restartKey = key + '.restart.' + config.restart;
   const requested = config.restart && !read(sessionStorage,restartKey);
@@ -35,7 +35,7 @@
     ['.st-key-nav_ajuda_e_contato', 'Ajuda e contato', 'Encontre contatos, entenda os termos usados no portal e relate um problema.'],
     ['.st-key-support_chat_launcher', 'Tire suas dúvidas', 'Use este botão para perguntar como usar o portal. Evite enviar CPF, senhas e dados de saúde.']
   ]};
-  const steps = tours[config.page] || tours['Meu acompanhamento'];
+  const steps = config.steps || tours[config.page] || tours['Meu acompanhamento'];
   let index = 0, target, timer, closed = false;
   const focusBefore = document.activeElement;
   const root = document.createElement('div');
@@ -134,6 +134,6 @@
   root.querySelector('.tour-back').onclick = () => { index--; show(-1); };
   root.querySelector('.tour-skip').onclick = () => close(true);
   window.addEventListener('resize',position); document.addEventListener('scroll',position,true); document.addEventListener('keydown',keyboard,true);
-  window.__dashjusPatientTour = {owner:config.owner,page:config.page,restart:config.restart,close};
+  window.__dashjusPatientTour = {owner:config.owner,role:config.role,page:config.page,restart:config.restart,close};
   timer = setTimeout(() => show(), 350);
 })();
