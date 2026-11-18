@@ -32,12 +32,46 @@ CALENDAR_TRANSLATIONS = {
         "Use as setas para navegar pelas datas. Enter para selecionar. Esc para fechar.",
 }
 
+TABLE_TRANSLATIONS = {
+    "Sort ascending": "Ordenar em ordem crescente",
+    "Sort descending": "Ordenar em ordem decrescente",
+    "Clear sort": "Limpar ordenação",
+    "Statistics": "Estatísticas", "Format": "Formato",
+    "Autosize": "Ajustar largura automaticamente",
+    "Autosize all columns": "Ajustar largura de todas as colunas",
+    "Pin column": "Fixar coluna", "Unpin column": "Desafixar coluna",
+    "Hide column": "Ocultar coluna", "Show column": "Mostrar coluna",
+    "Show all columns": "Mostrar todas as colunas",
+    "Reset": "Redefinir", "Default": "Padrão", "Automatic": "Automático",
+    "Number": "Número", "Integer": "Inteiro", "Decimal": "Decimal",
+    "Percent": "Porcentagem", "Percentage": "Porcentagem",
+    "Scientific": "Notação científica", "Engineering": "Notação de engenharia",
+    "Compact": "Compacto", "Currency": "Moeda", "Accounting": "Contábil",
+    "Date": "Data", "Time": "Hora", "Datetime": "Data e hora",
+    "Duration": "Duração", "Relative": "Relativo", "Localized": "Localizado",
+    "Count": "Contagem", "Total": "Total", "Sum": "Soma",
+    "Mean": "Média", "Average": "Média", "Median": "Mediana",
+    "Min": "Mínimo", "Max": "Máximo", "Minimum": "Mínimo", "Maximum": "Máximo",
+    "Std dev": "Desvio padrão", "Standard deviation": "Desvio padrão",
+    "Unique": "Valores distintos", "Distinct": "Valores distintos",
+    "Missing": "Ausentes", "Empty": "Vazios", "Non-empty": "Preenchidos",
+    "True": "Verdadeiro", "False": "Falso", "No data": "Sem dados",
+    "Copy": "Copiar", "Copy column name": "Copiar nome da coluna",
+    "Column menu": "Menu da coluna", "Button action menu": "Menu de ações",
+    "Plain": "Simples", "Dollar": "Dólar", "Euro": "Euro", "Yen": "Iene",
+    "Calendar": "Calendário", "Distance": "Tempo relativo",
+    "25th percentile": "Percentil 25", "75th percentile": "Percentil 75",
+    "Average length": "Comprimento médio", "Maximum length": "Comprimento máximo",
+    "Minimum length": "Comprimento mínimo", "Range": "Amplitude",
+    "Values": "Valores", "Based on sample": "Com base em uma amostra",
+}
+
 
 def render_calendar_portuguese() -> None:
-    """Observa somente calendários, incluindo menus abertos após um rerun."""
+    """Traduz calendários e menus de tabela, sem alterar valores das células."""
     runtime = """(() => {
-        if (window.__dashjusCalendarPortuguese) return;
-        window.__dashjusCalendarPortuguese = true;
+        if (window.__dashjusPortugueseMenus) return;
+        window.__dashjusPortugueseMenus = true;
         const translations = TRANSLATIONS;
         const dictionary = new Map(Object.entries(translations).map(([a,b]) => [a.toLowerCase(), b]));
         const translate = value => {
@@ -45,7 +79,7 @@ def render_calendar_portuguese() -> None:
             return dictionary.has(key) ? value.replace(value.trim(), dictionary.get(key)) : value;
         };
         const refresh = () => {
-            document.querySelectorAll('[data-testid^="stDateInput"]').forEach(root => {
+            document.querySelectorAll('[data-testid^="stDateInput"], [data-testid="stDataFrameColumnMenu"], [data-testid="stDataFrameColumnFormattingMenu"], [data-testid="stDataFrameStatisticsMenu"], [data-testid="stDataFrameButtonActionMenu"]').forEach(root => {
                 const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                 let node;
                 while ((node = walker.nextNode())) {
@@ -71,7 +105,7 @@ def render_calendar_portuguese() -> None:
         observer.observe(document.body, {childList:true, subtree:true, characterData:true,
             attributes:true, attributeFilter:['aria-label', 'title', 'placeholder']});
         refresh();
-    })();""".replace("TRANSLATIONS", json.dumps(CALENDAR_TRANSLATIONS, ensure_ascii=True))
+    })();""".replace("TRANSLATIONS", json.dumps(CALENDAR_TRANSLATIONS | TABLE_TRANSLATIONS, ensure_ascii=True))
     # O observador precisa pertencer à página principal, não ao iframe transitório.
     payload = json.dumps(runtime, ensure_ascii=True).replace("<", "\\u003c")
     components.html(
