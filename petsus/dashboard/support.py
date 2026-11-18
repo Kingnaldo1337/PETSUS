@@ -81,7 +81,7 @@ def render_data_freshness(metadata: dict, reference_date) -> None:
 
 
 def render_contacts() -> None:
-    with st.container(border=True):
+    with st.container(border=True, key="patient_contacts"):
         st.subheader("Precisa de ajuda?")
         legal = setting("PETSUS_LEGAL_CONTACT")
         support = setting("PETSUS_SUPPORT_CONTACT")

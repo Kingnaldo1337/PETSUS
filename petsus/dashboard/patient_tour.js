@@ -1,16 +1,32 @@
 (() => {
   const config = __TOUR_CONFIG__;
-  const key = 'dashjus.patientTour.v1.' + config.owner;
+  const key = 'dashjus.patientTour.v2.' + config.owner + '.' + config.page;
   const read = (storage, name) => { try { return storage.getItem(name); } catch (_) { return null; } };
   const write = (storage, name) => { try { storage.setItem(name, '1'); } catch (_) {} };
   const previous = window.__dashjusPatientTour;
-  if (previous && previous.owner === config.owner && previous.restart === config.restart) return;
+  if (previous && previous.owner === config.owner && previous.page === config.page && previous.restart === config.restart) return;
   if (previous) previous.close(false);
   const restartKey = key + '.restart.' + config.restart;
   const requested = config.restart && !read(sessionStorage,restartKey);
   if (!requested && (read(localStorage, key) || read(sessionStorage, key))) return;
   if (requested) write(sessionStorage,restartKey);
-  const steps = [
+  const tours = {
+  'Meus processos': [
+    ['.st-key-patient_header', 'Seus processos', 'Esta aba reúne os processos vinculados à sua conta. Vamos conhecer as informações e os botões disponíveis.'],
+    ['[class*="st-key-patient_record_"]', 'Resumo do processo', 'Cada cartão mostra o assunto, o número do processo e as informações de acompanhamento.'],
+    ['[class*="st-key-patient_record_"] [data-testid="stButton"]', 'Acompanhe o processo', 'Use Acompanhar processo para abrir os detalhes e conferir o próximo passo.'],
+    ['[class*="st-key-patient_record_"] [data-testid="stDownloadButton"]', 'Baixe o resumo', 'Este botão permite baixar o resumo de acompanhamento em PDF. Documentos oficiais devem ser obtidos com o tribunal ou seu representante.'],
+    ['[class*="st-key-patient_record_"] iframe', 'Ouça o resumo', 'Use o botão de ouvir para escutar as informações de acompanhamento do processo.'],
+    ['.st-key-support_chat_launcher', 'Precisa de orientação?', 'O assistente pode explicar como usar o portal. Não envie CPF, senhas ou dados de saúde.']
+  ],
+  'Ajuda e feedback': [
+    ['.st-key-patient_header', 'Ajuda e contato', 'Aqui você encontra contatos, pode relatar problemas e consultar explicações sobre o portal.'],
+    ['.st-key-patient_contacts', 'Encontre os contatos', 'Consulte os contatos disponíveis para procurar a equipe responsável pelo seu acompanhamento.'],
+    ['[data-testid="stTabs"] [role="tablist"]', 'Escolha o tipo de ajuda', 'As abas reúnem os relatos e respostas, o significado das palavras, informações sobre os dados, a avaliação de uso e as principais dúvidas.'],
+    ['[data-testid="stTabs"] [role="tabpanel"]:not([hidden])', 'Use a seção escolhida', 'Em Relatar e acompanhar, você pode registrar um problema e consultar a resposta da equipe. Selecione outra aba para acessar os demais conteúdos.'],
+    ['.st-key-support_chat_launcher', 'Pergunte sobre o portal', 'Use Tirar dúvidas para receber orientação sobre o uso da plataforma. Evite informar dados pessoais.']
+  ],
+  'Meu acompanhamento': [
     ['.st-key-patient_header', 'Bem-vindo ao DASHJUS', 'Vamos conhecer o portal. Use Próximo para continuar ou Pular tutorial para sair.'],
     ['.st-key-patient_process', 'Escolha seu processo', 'Selecione o processo que deseja acompanhar. As informações abaixo correspondem ao processo escolhido.'],
     ['.patient-status-grid', 'Confira a situação', 'Aqui você vê a situação na Justiça e na saúde. Uma decisão favorável não significa que o atendimento já aconteceu.'],
@@ -18,7 +34,8 @@
     ['.st-key-nav_meus_processos', 'Meus processos', 'Neste menu você encontra seus processos e pode baixar ou ouvir o resumo de acompanhamento.'],
     ['.st-key-nav_ajuda_e_contato', 'Ajuda e contato', 'Encontre contatos, entenda os termos usados no portal e relate um problema.'],
     ['.st-key-support_chat_launcher', 'Tire suas dúvidas', 'Use este botão para perguntar como usar o portal. Evite enviar CPF, senhas e dados de saúde.']
-  ];
+  ]};
+  const steps = tours[config.page] || tours['Meu acompanhamento'];
   let index = 0, target, timer, closed = false;
   const focusBefore = document.activeElement;
   const root = document.createElement('div');
@@ -117,6 +134,6 @@
   root.querySelector('.tour-back').onclick = () => { index--; show(-1); };
   root.querySelector('.tour-skip').onclick = () => close(true);
   window.addEventListener('resize',position); document.addEventListener('scroll',position,true); document.addEventListener('keydown',keyboard,true);
-  window.__dashjusPatientTour = {owner:config.owner,restart:config.restart,close};
+  window.__dashjusPatientTour = {owner:config.owner,page:config.page,restart:config.restart,close};
   timer = setTimeout(() => show(), 350);
 })();
