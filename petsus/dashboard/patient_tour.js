@@ -1,6 +1,7 @@
 (() => {
   const config = __TOUR_CONFIG__;
   const key = 'dashjus.patientTour.v2.' + config.owner + '.' + config.role + '.' + config.page;
+  const skipKey = 'dashjus.patientTour.skip.' + config.owner + '.' + config.role;
   const read = (storage, name) => { try { return storage.getItem(name); } catch (_) { return null; } };
   const write = (storage, name) => { try { storage.setItem(name, '1'); } catch (_) {} };
   const previous = window.__dashjusPatientTour;
@@ -8,7 +9,7 @@
   if (previous) previous.close(false);
   const restartKey = key + '.restart.' + config.restart;
   const requested = config.restart && !read(sessionStorage,restartKey);
-  if (!requested && (read(localStorage, key) || (config.role !== 'gestor' && read(sessionStorage, key)))) return;
+  if (!requested && (read(sessionStorage, skipKey) || read(localStorage, key) || (config.role !== 'gestor' && read(sessionStorage, key)))) return;
   if (requested) write(sessionStorage,restartKey);
   const tours = {
   'Meus processos': [
@@ -164,7 +165,7 @@
     root.remove(); if (focusBefore && focusBefore.isConnected) focusBefore.focus({preventScroll:true});
   }
   function keyboard(event) {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); skip(); }
     if (event.key === 'Tab') {
       const controls = [...box.querySelectorAll('input,button:not(:disabled)')];
       const first = controls[0], last = controls[controls.length-1];
@@ -174,7 +175,11 @@
   }
   root.querySelector('.tour-next').onclick = () => { index++; show(); };
   root.querySelector('.tour-back').onclick = () => { index--; show(-1); };
-  root.querySelector('.tour-skip').onclick = () => close(true);
+  function skip() {
+    write(sessionStorage,skipKey);
+    close(true);
+  }
+  root.querySelector('.tour-skip').onclick = skip;
   window.addEventListener('resize',position); document.addEventListener('scroll',position,true); document.addEventListener('keydown',keyboard,true);
   window.__dashjusPatientTour = {owner:config.owner,role:config.role,page:config.page,restart:config.restart,close};
   timer = setTimeout(() => show(), 350);
