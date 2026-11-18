@@ -45,6 +45,9 @@ def test_patient_portal_has_only_own_processes_and_no_analytics(portal_source):
     app = authenticated_app(user)
     assert not app.exception
     assert navigation_labels(app) == navigation_for(False)[0]
+    app.sidebar.button(key="patient_tour_restart").click().run()
+    assert not app.exception
+    assert app.session_state["patient_tour_restart_count"] == 1
     assert not app.sidebar.radio
     assert not app.multiselect
     assert not app.date_input

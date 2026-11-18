@@ -309,6 +309,8 @@ with st.sidebar:
     pagina = page_map[page_label]
     if not auth_user.is_manager:
         st.markdown(f'<div class="patient-sidebar-note">{icon("lock",13)} Um espaço seguro para acompanhar os seus processos.</div>', unsafe_allow_html=True)
+        if st.button("Ver tutorial", key="patient_tour_restart", use_container_width=True):
+            st.session_state["patient_tour_restart_count"] = st.session_state.get("patient_tour_restart_count", 0) + 1
     if auth_user.is_manager and pagina not in ("Gestão interna", "Ajuda e feedback", "Processos"):
         st.divider()
         st.markdown('<div class="patient-sidebar-label">REFINAR ANÁLISE</div><div class="manager-filter-caption">Ajuste os filtros para explorar os indicadores.</div>', unsafe_allow_html=True)
@@ -385,5 +387,9 @@ else:
             st.stop()
     k = calculate_kpis(dff)
     render_dashboard_page(pagina, dff, base, k, pct(len(dff), len(base)), pct(k["custo"], base["custo_estimado"].sum()), selected_patient_ids, auth_store=auth_store)
+
+if not auth_user.is_manager:
+    from petsus.dashboard.patient_tour import render_patient_tour
+    render_patient_tour(auth_user, st.session_state.get("patient_tour_restart_count", 0))
 
 st.markdown(f'<div class="patient-footer">{icon("lock",12)} DASHJUS · Judicialização na Saúde</div>', unsafe_allow_html=True)
