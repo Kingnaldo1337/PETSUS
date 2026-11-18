@@ -46,8 +46,6 @@
         const rect = card.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
       }).map((card, i) => {
-        const id = 'manager-card-' + i;
-        card.setAttribute('data-dashjus-tour',id);
         const label = card.querySelector('.metric-label,.insight-title');
         const help = card.querySelector('.card-help');
         const subtitle = card.querySelector('.metric-sub,.insight-desc');
@@ -55,9 +53,28 @@
         // context, instead of duplicating metric formulas in the tutorial.
         const title = label ? [...label.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join('').trim() : 'Indicador';
         const explanation = help?.getAttribute('data-help') || subtitle?.textContent || 'Este cartão resume o recorte selecionado.';
-        return ['[data-dashjus-tour="'+id+'"]',title,explanation];
+        return ['@manager-card:'+i,title,explanation];
       });
     });
+    steps = steps.filter(step => resolveTarget(step[0]));
+  }
+  function resolveTarget(selector) {
+    const visible = node => node && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
+    if (selector.startsWith('@manager-card:')) {
+      return [...document.querySelectorAll('.metric-card,.insight-card')].filter(visible)[Number(selector.split(':')[1])];
+    }
+    const direct = [...document.querySelectorAll(selector)].find(visible);
+    if (direct) return direct;
+    // Widget keys are not attached to the same wrapper in every Streamlit
+    // version. Resolve the rendered field by its label when necessary.
+    const labels = {
+      '.st-key-filter_uf':'Estado (UF)', '.st-key-filter_municipio':'Município',
+      '.st-key-process_list_states':'Estado (UF)', '.st-key-process_list_municipalities':'Município',
+      '.st-key-process_list_search':'Buscar processo', '.st-key-tracking_process':'Processo'
+    };
+    if (!labels[selector]) return null;
+    return [...document.querySelectorAll('[data-testid="stMultiSelect"],[data-testid="stSelectbox"],[data-testid="stTextInput"]')].find(node =>
+      visible(node) && node.querySelector('label')?.textContent.trim() === labels[selector]);
   }
   let index = 0, target, timer, closed = false;
   const focusBefore = document.activeElement;
@@ -122,12 +139,13 @@
   }
   function show(direction = 1) {
     prepareCards();
-    target = null;
-    while (index >= 0 && index < steps.length) {
-      const candidate = document.querySelector(steps[index][0]);
-      if (candidate && candidate.getBoundingClientRect().width && candidate.getBoundingClientRect().height) { target = candidate; break; }
-      index += direction;
+    // Only count steps whose area is available on this page. Re-resolve every
+    // target after a rerender instead of relying on attributes on old DOM nodes.
+    while (index >= 0 && index < steps.length && !resolveTarget(steps[index][0])) {
+      steps.splice(index,1);
+      if (direction < 0) index--;
     }
+    target = index >= 0 && index < steps.length ? resolveTarget(steps[index][0]) : null;
     if (!target) { close(true); return; }
     root.querySelector('.tour-count').textContent = `Passo ${index+1} de ${steps.length}`;
     root.querySelector('h2').textContent = steps[index][1]; root.querySelector('p').textContent = steps[index][2];
