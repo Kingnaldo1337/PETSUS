@@ -24,6 +24,8 @@
   const root = document.createElement('div');
   root.id = 'dashjus-patient-tour';
   root.innerHTML = `<style>
+    #dashjus-patient-tour{position:fixed;inset:0;z-index:2147483000;pointer-events:none;}
+    #dashjus-patient-tour .tour-shade,#dashjus-patient-tour .tour-box{pointer-events:auto;}
     #dashjus-patient-tour .tour-shade{position:fixed;background:rgba(9,28,49,.57);backdrop-filter:blur(3px);z-index:100001;}
     #dashjus-patient-tour .tour-ring{position:fixed;pointer-events:none;border:3px solid #65e2e8;border-radius:12px;box-shadow:0 0 0 2px white;z-index:100002;}
     #dashjus-patient-tour .tour-box{position:fixed;box-sizing:border-box;width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;padding:20px;background:#fff;color:#122c50;border:1px solid #bddce5;border-radius:16px;box-shadow:0 14px 50px #001c4055;z-index:100003;font:16px/1.5 sans-serif;}
@@ -55,15 +57,28 @@
     place(shades[0],0,0,W,y); place(shades[1],0,bottom,W,H-bottom);
     place(shades[2],0,y,x,bottom-y); place(shades[3],right,y,W-right,bottom-y);
     place(ring,x,y,right-x,bottom-y);
+    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+    const sidebarRect = sidebar && sidebar.getBoundingClientRect();
+    const sidebarRight = sidebarRect && sidebarRect.width > 0 && sidebarRect.right > 0
+      && getComputedStyle(sidebar).visibility !== 'hidden' ? Math.min(W,sidebarRect.right) : 0;
+    // Prefer the main content area. On narrow screens keep a full-width bottom
+    // panel above the sidebar instead of squeezing the explanation into a sliver.
+    const minLeft = W-sidebarRight >= 300 ? sidebarRight+12 : 12;
+    box.style.width = Math.min(360,Math.max(0,W-minLeft-12))+'px';
     const height = box.offsetHeight, width = box.offsetWidth;
-    let top = bottom+14, left = Math.min(W-width-12,Math.max(12,x));
-    if (top+height > H-12) top = y-height-14;
-    if (top < 12) {
-      top = Math.max(12,Math.min(H-height-12,y));
-      if (right+width+20 < W) left = right+14;
-      else if (x-width-14 > 12) left = x-width-14;
-    }
-    box.style.left = Math.max(12,left)+'px'; box.style.top = Math.max(12,top)+'px';
+    const maxLeft = W-width-12;
+    let left = Math.max(minLeft,Math.min(maxLeft,x));
+    const candidates = [
+      {left,top:bottom+14},
+      {left,top:y-height-14},
+      {left:right+14,top:Math.max(12,Math.min(H-height-12,y))},
+      {left:x-width-14,top:Math.max(12,Math.min(H-height-12,y))}
+    ];
+    const fit = candidates.find(p => p.left >= minLeft && p.left+width <= W-12
+      && p.top >= 12 && p.top+height <= H-12);
+    const chosen = fit || {left,top:H-height-12};
+    box.style.left = Math.max(minLeft,Math.min(maxLeft,chosen.left))+'px';
+    box.style.top = Math.max(12,chosen.top)+'px';
   }
   function show(direction = 1) {
     target = null;
